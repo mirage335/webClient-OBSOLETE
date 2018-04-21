@@ -2,13 +2,37 @@ Copyright (C) 2018 mirage335
 See the end of the file for license conditions.
 See license.txt for webClient license conditions.
 
-# Usage
+Web browser containment framework.
 
+Automatically forces FireFox and Chromium to use a "HOME" folder neighboring the shell script itself, launching a virtual machine if necessary.
+
+# Usage
+./_firefox
+./_firefox_editHome_multitasking
+./_chromium
+
+Remove "_local/h" ".gitignore" exlcusion to track web browser profile under git repository.
+
+FireFox will not report "profile in use" errors when run under non-persistent/user modes, which use temporary directories. However, FireFox still cannot be run multiple times under persistent/edit modes if any other FireFox profile is active on the desktop.
 
 # Design
+Ubiquitous Bash FakeHome virtualization redirects the apparent home directory as seen by FireFox and Chromium.
 
+If appropriate native binaries are not available, the "nixexevm" virtual machine will be launched. Either a "_local/vm.img" file, or a "$HOME"/core/nixexevm/ubiquitous_bash.sh script, containing a Debian operating system.
 
-# Safety
+All functionality is defined by "_prog/core.sh".
+
+All functionality is demonstrated by this worst-case internal command.
+_userQemu "$scriptAbsoluteLocation" _userFakeHome "$scriptAbsoluteLocation" "_firefox_command" -no-remote "$@"
+
+"_userQemu" - Directive to launch a Virtual Machine, with directory sharing and file translated parameters.
+"$scriptAbsoluteLocation" - Absolute path of the "ubiquitous_bash.sh" script itself.
+"_userFakeHome" - Directive to launch with "$HOME" variable pointed at a temporary directory named "h_"<random> .
+"_firefox_command" - FireFox binary found on the system.
+"-no-remote" - Parameter for FireFox itself. Given the "$HOME"/.mozilla directory is temporary, there is no need for process sharing.
+
+# Future Work
+* MSW/Cygwin host support.
 
 
 __Copyright__
