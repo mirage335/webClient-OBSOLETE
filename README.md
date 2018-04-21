@@ -1,4 +1,5 @@
 Copyright (C) 2018 mirage335
+
 See the end of the file for license conditions.
 See license.txt for webClient license conditions.
 
@@ -8,7 +9,9 @@ Automatically forces FireFox and Chromium to use a "HOME" folder neighboring the
 
 # Usage
 ./_firefox
+
 ./_firefox_editHome_multitasking
+
 ./_chromium
 
 Remove "_local/h" ".gitignore" exlcusion to track web browser profile under git repository.
