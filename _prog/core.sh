@@ -99,4 +99,6 @@ _chromium() {
 	_v_chromium "$@"
 }
 
-
+_webClient() {
+	_launch "$@"
+}
