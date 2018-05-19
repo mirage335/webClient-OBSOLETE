@@ -11727,6 +11727,24 @@ _package() {
 
 ##### Core
 
+_flag_localURL() {
+	local flagLocalURL
+	flagLocalURL="false"
+	
+	_messagePlain_probe 'checking: flagLocalURL'
+	
+	echo "$1" | grep "^./" >/dev/null 2>&1 && flagLocalURL="true" && _messagePlain_good 'accept: flagLocalURL'
+	echo "$1" | grep "^/" >/dev/null 2>&1 && flagLocalURL="true" && _messagePlain_good 'accept: flagLocalURL'
+	echo "$1" | grep "^file:///" >/dev/null 2>&1 && flagLocalURL="true" && _messagePlain_good 'accept: flagLocalURL'
+	
+	echo "$@" | grep 'http\:\/\/' >/dev/null 2>&1 && flagLocalURL="false" && _messagePlain_warn 'reject: flagLocalURL'
+	echo "$@" | grep 'https\:\/\/' >/dev/null 2>&1 && flagLocalURL="false" && _messagePlain_warn 'reject: flagLocalURL'
+	
+	#Local files may open in a temporary browser instance.
+	[[ "$flagLocalURL" == "true" ]] && return 0
+ 	[[ "$flagLocalURL" != "true" ]] && return 1
+}
+
 _firefox_command() {
 	if [[ -e "$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox ]]
 	then
@@ -11765,6 +11783,12 @@ _firefox_command() {
 }
 
 _firefox_editHome_multitasking() {
+	if _flag_localURL "$@"
+	then
+		_firefox_esr_userHome "$@"
+		return
+	fi
+	
 	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_command" "$@"
 }
 
