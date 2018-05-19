@@ -2503,25 +2503,25 @@ _setup_ssh() {
 }
 
 _setup_ssh_commands() {
-	find . -name '_ssh' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	find . -name '_rsync' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_ssh' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_rsync' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
 	
-	find . -name '_sshfs' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_sshfs' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
 	
-	find . -name '_web' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_web' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
 	
-	find . -name '_backup' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_backup' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
 	
-	find . -name '_fs' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_fs' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
 	
-	find . -name '_vnc' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	find . -name '_push_vnc' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	find . -name '_desktop' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	find . -name '_push_desktop' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_vnc' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_push_vnc' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_desktop' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_push_desktop' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
 	
-	find . -name '_wake' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_wake' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
 	
-	find . -name '_meta' -exec "$scriptAbsoluteLocation" _setupCommand_meta {} \;
+	_find_setupCommands -name '_meta' -exec "$scriptAbsoluteLocation" _setupCommand_meta {} \;
 }
 
 _package_cautossh() {
@@ -2754,7 +2754,7 @@ _showCommand() {
 #End user function.
 _user_log() {
 	# DANGER Do NOT create automatically, or reference any existing directory!
-	! [[ -d "$HOME"/.ubcore/userlog ]] && cat - > /dev/null 2>&1 return 1
+	! [[ -d "$HOME"/.ubcore/userlog ]] && cat - > /dev/null 2>&1 && return 1
 	
 	cat - >> "$HOME"/.ubcore/userlog/user.log
 }
@@ -2762,7 +2762,7 @@ _user_log() {
 #Universal debugging filesystem.
 _user_log-ub() {
 	# DANGER Do NOT create automatically, or reference any existing directory!
-	! [[ -d "$HOME"/.ubcore/userlog ]] && cat - > /dev/null 2>&1 return 1
+	! [[ -d "$HOME"/.ubcore/userlog ]] && cat - > /dev/null 2>&1 && return 1
 	
 	#Terminal session may be used - the sessionid may be set through .bashrc/.ubcorerc .
 	if [[ "$sessionid" != "" ]]
@@ -2776,7 +2776,7 @@ _user_log-ub() {
 #Universal debugging filesystem.
 _user_log_anchor() {
 	# DANGER Do NOT create automatically, or reference any existing directory!
-	! [[ -d "$HOME"/.ubcore/userlog ]] && cat - > /dev/null 2>&1 return 1
+	! [[ -d "$HOME"/.ubcore/userlog ]] && cat - > /dev/null 2>&1 && return 1
 	
 	#Terminal session may be used - the sessionid may be set through .bashrc/.ubcorerc .
 	if [[ "$sessionid" != "" ]]
@@ -2790,7 +2790,7 @@ _user_log_anchor() {
 #Universal debugging filesystem.
 _user_log_template() {
 	# DANGER Do NOT create automatically, or reference any existing directory!
-	! [[ -d "$HOME"/.ubcore/userlog ]] && cat - > /dev/null 2>&1 return 1
+	! [[ -d "$HOME"/.ubcore/userlog ]] && cat - > /dev/null 2>&1 && return 1
 	
 	#Terminal session may be used - the sessionid may be set through .bashrc/.ubcorerc .
 	if [[ "$sessionid" != "" ]]
@@ -3951,7 +3951,7 @@ _findInfrastructure_virtImage_script() {
 	
 	recursionExecList+=("$HOME"/core/infrastructure/vm/"$infrastructureName"/ubiquitous_bash.sh)
 	
-	recursionExecList+=("$HOME"/extra/infrastructure/vm/"$infrastructureName"/ubiquitous_bash.sh)
+	recursionExecList+=("$HOME"/core/extra/infrastructure/vm/"$infrastructureName"/ubiquitous_bash.sh)
 	
 	local whichExeVM
 	whichExeVM=nixexevm
@@ -3976,10 +3976,10 @@ _findInfrastructure_virtImage_script() {
 	recursionExecList+=("$scriptAbsoluteFolder"/../../../../../../../core/infrastructure/vm/"$whichExeVM"/ubiquitous_bash.sh)
 	
 	recursionExecList+=("$HOME"/core/infrastructure/"$whichExeVM"/ubiquitous_bash.sh)
-	recursionExecList+=("$HOME"/extra/infrastructure/"$whichExeVM"/ubiquitous_bash.sh)
+	recursionExecList+=("$HOME"/core/extra/infrastructure/"$whichExeVM"/ubiquitous_bash.sh)
 	
 	recursionExecList+=("$HOME"/core/infrastructure/vm/"$whichExeVM"/ubiquitous_bash.sh)
-	recursionExecList+=("$HOME"/extra/infrastructure/vm/"$whichExeVM"/ubiquitous_bash.sh)
+	recursionExecList+=("$HOME"/core/extra/infrastructure/vm/"$whichExeVM"/ubiquitous_bash.sh)
 	
 	for currentRecursionExec in "${recursionExecList[@]}"
 	do
@@ -4425,7 +4425,7 @@ _editFakeHome_sequence() {
 	env -i DISPLAY="$DISPLAY" XAUTH="$XAUTH" XAUTHORITY="$XAUTHORITY" XSOCK="$XSOCK" HOME="$HOME" setFakeHome="$setFakeHome" TERM="${TERM}" SHELL="${SHELL}" PATH="${PATH}" dbus-run-session "$@"
 	#"$@"
 	
-	_unmakeFakeHome > /dev/null 2>&1
+	#_unmakeFakeHome > /dev/null 2>&1
 	
 	_resetFakeHomeEnv_nokeep
 	_stop
@@ -7528,8 +7528,18 @@ _test_devemacs() {
 	! [[ "$emacsDetectedVersion" -ge "24" ]] && echo emacs too old && _stop 1
 }
 
+_set_emacsFakeHomeSource() {
+	export emacsFakeHomeSource="$scriptLib"/app/emacs/home
+	if ! [[ -e "$emacsFakeHomeSource" ]]
+	then
+		export emacsFakeHomeSource="$scriptLib"/ubiquitous_bash/_lib/app/emacs/home
+	fi
+}
+
 _prepare_emacsDev_fakeHome() {
-	cp -a "$scriptLib"/app/emacs/home/. "$HOME"
+	_set_emacsFakeHomeSource
+	
+	cp -a "$emacsFakeHomeSource"/. "$HOME"
 }
 
 _emacsDev_sequence() {
@@ -7549,7 +7559,8 @@ _emacs() {
 }
 
 _emacsDev_edit_sequence() {
-	export appGlobalFakeHome="$scriptLib"/app/emacs/home
+	_set_emacsFakeHomeSource
+	export appGlobalFakeHome="$emacsFakeHomeSource"
 	
 	_editFakeHome emacs "$@"
 }
@@ -9704,7 +9715,7 @@ _parity_attach() {
 }
 
 _setup_command_commands() {
-	find . -name '_synergy' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_synergy' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
 }
 
 _here_synergy_config() {
@@ -11332,6 +11343,16 @@ _preserveVar() {
 }
 
 
+_test_prog() {
+	_getDep which
+	
+	_getDep firefox
+	_getDep chromium
+	
+	_noFireJail 'firefox' && _stop 1
+	_noFireJail 'chromium' && _stop 1
+}
+
 #####Installation
 
 #Verifies the timeout and sleep commands work properly, with subsecond specifications.
@@ -11587,20 +11608,27 @@ _setupCommand_meta() {
 	local clientScriptFolder
 	clientScriptFolder=$(_getAbsoluteFolder "$1")
 	
+	local clientScriptFolderResidence
+	clientScriptFolderResidence=$(_getAbsoluteFolder "$clientScriptFolder")
+	
 	local commandName
 	commandName=$(basename "$1")
 	
 	local clientName
-	clientName=$(basename "$clientScriptFolder"/..)
+	clientName=$(basename "$clientScriptFolderResidence")
 	
 	_relink_relative "$clientScriptLocation" "$HOME"/bin/"$commandName""-""$clientName"
 	
 	
 }
 
+_find_setupCommands() {
+	find -L "$scriptAbsoluteFolder" -not \( -path \*_arc\* -prune \) "$@"
+}
+
 #Consider placing files like ' _vnc-machine-"$netName" ' in an "_index" folder for automatic installation.
 _setupCommands() {
-	#find . -name '_command' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	#_find_setupCommands -name '_command' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
 	
 	_tryExec "_setup_ssh_commands"
 	_tryExec "_setup_command_commands"
@@ -11682,16 +11710,6 @@ _package() {
 	
 	cd "$outerPWD"
 	_stop
-}
-
-_test_prog() {
-	_getDep which
-	
-	_getDep firefox
-	_getDep chromium
-	
-	_noFireJail 'firefox' && _stop 1
-	_noFireJail 'chromium' && _stop 1
 }
 
 ##### Core
@@ -12538,7 +12556,7 @@ _compile_bash_environment() {
 _compile_bash_installation() {
 	export includeScriptList
 	
-	
+	includeScriptList+=( "structure"/installation_prog.sh )
 	includeScriptList+=( "structure"/installation.sh )
 }
 
