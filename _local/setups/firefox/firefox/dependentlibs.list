@@ -1,7 +1,7 @@
-libmozsandbox.so
 libnspr4.so
 libplc4.so
 libplds4.so
+libmozsandbox.so
 liblgpllibs.so
 libnssutil3.so
 libnss3.so

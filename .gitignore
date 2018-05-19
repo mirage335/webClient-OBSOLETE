@@ -1,6 +1,7 @@
 w_*/
 v_*/
 h_*/
+h_esr*/
 
 vm.vdi
 vm.img
@@ -27,4 +28,24 @@ _local/h/projects
 _local/h/realHome
 _local/h/.Xauthority
 
+_local/h_esr/.nv
+_local/h_esr/.recently-used
+_local/h_esr/.ssh
+_local/h_esr/.ubcore
+_local/h_esr/Documents
+_local/h_esr/Downloads
+_local/h_esr/Music
+_local/h_esr/Pictures
+_local/h_esr/Public
+_local/h_esr/Templates
+_local/h_esr/Videos
+_local/h_esr/bin
+_local/h_esr/core
+_local/h_esr/project
+_local/h_esr/projects
+_local/h_esr/realHome
+_local/h_esr/.Xauthority
+
 _local/h
+
+_local/h_esr
