@@ -367,7 +367,7 @@ export anchorName=$(basename "$anchorScriptAbsoluteLocation")
 export anchorSource="ubiquitous_bash.sh"
 export anchorSourcePath=webClient/"$anchorSource"
 
-export anchorLabName=anchorLabName
+export anchorLabName=webClient
 export anchorLabNameAlt="$anchorLabName"Mini
 
 export anchorEntity=""
