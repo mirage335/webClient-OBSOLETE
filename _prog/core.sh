@@ -84,7 +84,7 @@ _firefox_esr_command() {
 		then
 			_messageNormal 'Launch: firefox-esr'
 			_messagePlain_probe firefox-esr "$@"
-			firefox "$@"
+			firefox-esr "$@"
 			return 0
 		fi
 	fi
@@ -175,6 +175,9 @@ _refresh_anchors() {
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_webClient
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_editHome_multitasking
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_v_firefox
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_esr
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_esr_editHome
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_v_firefox
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_chromium
 }
