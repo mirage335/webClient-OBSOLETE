@@ -127,22 +127,30 @@ _firefox_esr_command() {
 }
 
 _firefox_esr_editHome_multitasking() {
-	export appGlobalFakeHome="$scriptLocal"/h_esr
-	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_esr_command" "$@"
+	export globalFakeHome="$scriptLocal"/h_esr
+	export actualFakeHome="$scriptLocal"/h_esr
+	export fakeHomeEditLib="false"
+	#export keepFakeHome="false"
+	_fakeHome "$scriptAbsoluteLocation" "_firefox_esr_command" "$@"
 }
 
 # ATTENTION
 # Override with "ops", point to "_firefox_editHome_multitasking", to allow "remote" instances of firefox for the user/machine global profile.
 _firefox_esr_editHome() {
-	# TODO: Ideally, there should be an automatic check to determine whether a compatible firefox instance already existed, allowing "-no-remote" to be dropped.
-	export appGlobalFakeHome="$scriptLocal"/h_esr
-	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_esr_command" -no-remote "$@"
+	# TODO: Ideally, there should be an automatic check to determine whether a *compatible* firefox instance already existed, allowing "-no-remote" to be dropped.
+	export globalFakeHome="$scriptLocal"/h_esr
+	export actualFakeHome="$scriptLocal"/h_esr
+	export fakeHomeEditLib="false"
+	#export keepFakeHome="false"
+	_fakeHome "$scriptAbsoluteLocation" "_firefox_esr_command" -no-remote "$@"
 }
 
 _firefox_esr_userHome() {
-	#Always use "-no-remote".
-	export appGlobalFakeHome="$scriptLocal"/h_esr
-	"$scriptAbsoluteLocation" _userFakeHome "$scriptAbsoluteLocation" "_firefox_esr_command" -no-remote "$@"
+	export globalFakeHome="$scriptLocal"/h_esr
+	export actualFakeHome="$instancedFakeHome"
+	export fakeHomeEditLib="false"
+	#export keepFakeHome="false"
+	_fakeHome "$scriptAbsoluteLocation" "_firefox_esr_command" -no-remote "$@"
 }
 
 _v_firefox_esr() {
