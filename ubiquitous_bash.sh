@@ -92,19 +92,32 @@ _messagePlain_probe_expr '$0= '"$0"'\n ''$1= '"$1"'\n ''ub_import= '"$ub_import"
 # WARNING Import from shell can be detected. Import from script cannot. Asserting that script has been imported is possible. Asserting that script has not been imported is not possible. Users may be protected from interactive mistakes. Script developers are NOT protected.
 if [[ "$ub_import_param" == "--profile" ]]
 then
-	([[ "$profileScriptLocation" == "" ]] ||  [[ "$profileScriptFolder" == "" ]]) && _messagePlain_bad 'import: profile: missing: profileScriptLocation, missing: profileScriptFolder' | _user_log-ub && return 1
+	if ([[ "$profileScriptLocation" == "" ]] ||  [[ "$profileScriptFolder" == "" ]]) && _messagePlain_bad 'import: profile: missing: profileScriptLocation, missing: profileScriptFolder' | _user_log-ub
+	then
+		return 1 >/dev/null 2>&1
+		exit 1
+	fi
 elif ([[ "$ub_import_param" == "--parent" ]] || [[ "$ub_import_param" == "--embed" ]] || [[ "$ub_import_param" == "--return" ]] || [[ "$ub_import_param" == "--devenv" ]])
 then
-	([[ "$scriptAbsoluteLocation" == "" ]] || [[ "$scriptAbsoluteFolder" == "" ]] || [[ "$sessionid" == "" ]]) && _messagePlain_bad 'import: parent: missing: scriptAbsoluteLocation, missing: scriptAbsoluteFolder, missing: sessionid' | _user_log-ub && return 1
+	if ([[ "$scriptAbsoluteLocation" == "" ]] || [[ "$scriptAbsoluteFolder" == "" ]] || [[ "$sessionid" == "" ]]) && _messagePlain_bad 'import: parent: missing: scriptAbsoluteLocation, missing: scriptAbsoluteFolder, missing: sessionid' | _user_log-ub
+	then
+		return 1 >/dev/null 2>&1
+		exit 1
+	fi
 elif [[ "$ub_import_param" == "--call" ]] || [[ "$ub_import_param" == "--script" ]] || [[ "$ub_import_param" == "--bypass" ]] || [[ "$ub_import_param" == "--shell" ]] || ([[ "$ub_import" == "true" ]] && [[ "$ub_import_param" == "" ]])
 then
-	([[ "$importScriptLocation" == "" ]] ||  [[ "$importScriptFolder" == "" ]]) && _messagePlain_bad 'import: call: missing: importScriptLocation, missing: importScriptFolder' | _user_log-ub && return 1
+	if ([[ "$importScriptLocation" == "" ]] ||  [[ "$importScriptFolder" == "" ]]) && _messagePlain_bad 'import: call: missing: importScriptLocation, missing: importScriptFolder' | _user_log-ub
+	then
+		return 1 >/dev/null 2>&1
+		exit 1
+	fi
 elif [[ "$ub_import" != "true" ]]	#"--shell", ""
 then
 	_messagePlain_warn 'import: undetected: cannot determine if imported' | _user_log-ub
 	true #no problem
 else	#FAIL, implies [[ "$ub_import" == "true" ]]
-	_messagePlain_bad 'import: fall: fail' | _user_log-ub && return 1
+	_messagePlain_bad 'import: fall: fail' | _user_log-ub
+	return 1 >/dev/null 2>&1
 	exit 1
 fi
 
@@ -114,14 +127,234 @@ fi
 
 #####Utilities
 
+_test_getAbsoluteLocation_sequence() {
+	_start
+	
+	local testScriptLocation_actual
+	local testScriptLocation
+	local testScriptFolder
+	
+	local testLocation_actual
+	local testLocation
+	local testFolder
+	
+	#script location/folder work directories
+	mkdir -p "$safeTmp"/sAL_dir
+	cp "$scriptAbsoluteLocation" "$safeTmp"/sAL_dir/script
+	ln -s "$safeTmp"/sAL_dir/script "$safeTmp"/sAL_dir/lnk
+	[[ ! -e "$safeTmp"/sAL_dir/script ]] && _stop 1
+	[[ ! -e "$safeTmp"/sAL_dir/lnk ]] && _stop 1
+	
+	ln -s "$safeTmp"/sAL_dir "$safeTmp"/sAL_lnk
+	[[ ! -e "$safeTmp"/sAL_lnk/script ]] && _stop 1
+	[[ ! -e "$safeTmp"/sAL_lnk/lnk ]] && _stop 1
+	
+	#_getScriptAbsoluteLocation
+	testScriptLocation_actual=$("$safeTmp"/sAL_dir/script _getScriptAbsoluteLocation)
+	[[ "$safeTmp"/sAL_dir/script != "$testScriptLocation_actual" ]] && echo 'crit: "$safeTmp"/sAL_dir/script != "$testScriptLocation_actual"' && _stop 1
+	
+	testScriptLocation=$("$safeTmp"/sAL_dir/script _getScriptAbsoluteLocation)
+	[[ "$testScriptLocation" != "$testScriptLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_dir/script' && _stop 1
+	testScriptLocation=$("$safeTmp"/sAL_dir/lnk _getScriptAbsoluteLocation)
+	[[ "$testScriptLocation" != "$testScriptLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_dir/lnk' && _stop 1
+	
+	testScriptLocation=$("$safeTmp"/sAL_lnk/script _getScriptAbsoluteLocation)
+	[[ "$testScriptLocation" != "$testScriptLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_lnk/script' && _stop 1
+	testScriptLocation=$("$safeTmp"/sAL_lnk/lnk _getScriptAbsoluteLocation)
+	[[ "$testScriptLocation" != "$testScriptLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_lnk/lnk' && _stop 1
+	
+	#_getScriptAbsoluteFolder
+	testScriptFolder_actual=$("$safeTmp"/sAL_dir/script _getScriptAbsoluteFolder)
+	[[ "$safeTmp"/sAL_dir != "$testScriptFolder_actual" ]] && echo 'crit: "$safeTmp"/sAL_dir != "$testScriptFolder_actual"' && _stop 1
+	
+	testScriptFolder=$("$safeTmp"/sAL_dir/script _getScriptAbsoluteFolder)
+	[[ "$testScriptFolder" != "$testScriptFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_dir/script' && _stop 1
+	testScriptFolder=$("$safeTmp"/sAL_dir/lnk _getScriptAbsoluteFolder)
+	[[ "$testScriptFolder" != "$testScriptFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_dir/lnk' && _stop 1
+	
+	testScriptFolder=$("$safeTmp"/sAL_lnk/script _getScriptAbsoluteFolder)
+	[[ "$testScriptFolder" != "$testScriptFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_lnk/script' && _stop 1
+	testScriptFolder=$("$safeTmp"/sAL_lnk/lnk _getScriptAbsoluteFolder)
+	[[ "$testScriptFolder" != "$testScriptFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_lnk/lnk' && _stop 1
+	
+	
+	#_getAbsoluteLocation
+	testLocation_actual=$("$safeTmp"/sAL_dir/script _getAbsoluteLocation "$safeTmp"/sAL_dir/script)
+	[[ "$safeTmp"/sAL_dir/script != "$testLocation_actual" ]] && echo 'crit: "$safeTmp"/sAL_dir/script != "$testLocation_actual"' && _stop 1
+	
+	testLocation=$("$safeTmp"/sAL_dir/script _getAbsoluteLocation "$safeTmp"/sAL_dir/script)
+	[[ "$testLocation" != "$testLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_dir/script' && _stop 1
+	testLocation=$("$safeTmp"/sAL_dir/lnk _getAbsoluteLocation "$safeTmp"/sAL_dir/lnk)
+	[[ "$testLocation" != "$testLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_dir/lnk' && _stop 1
+	
+	testLocation=$("$safeTmp"/sAL_lnk/script _getAbsoluteLocation "$safeTmp"/sAL_lnk/script)
+	[[ "$testLocation" != "$testLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_lnk/script' && _stop 1
+	testLocation=$("$safeTmp"/sAL_lnk/lnk _getAbsoluteLocation "$safeTmp"/sAL_lnk/lnk)
+	[[ "$testLocation" != "$testLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_lnk/lnk' && _stop 1
+	
+	#_getAbsoluteFolder
+	testFolder_actual=$("$safeTmp"/sAL_dir/script _getAbsoluteFolder "$safeTmp"/sAL_dir/script)
+	[[ "$safeTmp"/sAL_dir != "$testFolder_actual" ]] && echo 'crit: "$safeTmp"/sAL_dir != "$testFolder_actual"' && _stop 1
+	
+	testFolder=$("$safeTmp"/sAL_dir/script _getAbsoluteFolder "$safeTmp"/sAL_dir/script)
+	[[ "$testFolder" != "$testFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_dir/script' && _stop 1
+	testFolder=$("$safeTmp"/sAL_dir/lnk _getAbsoluteFolder "$safeTmp"/sAL_dir/script)
+	[[ "$testFolder" != "$testFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_dir/lnk' && _stop 1
+	
+	testFolder=$("$safeTmp"/sAL_lnk/script _getAbsoluteFolder "$safeTmp"/sAL_lnk/script)
+	[[ "$testFolder" != "$testFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_lnk/script' && _stop 1
+	testFolder=$("$safeTmp"/sAL_lnk/lnk _getAbsoluteFolder "$safeTmp"/sAL_lnk/script)
+	[[ "$testFolder" != "$testFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_lnk/lnk' && _stop 1
+	
+	_stop
+}
+
+_test_getAbsoluteLocation() {
+	"$scriptAbsoluteLocation" _test_getAbsoluteLocation_sequence "$@"
+	[[ "$?" != "0" ]] && _stop 1
+	return 0
+}
+
+#https://unix.stackexchange.com/questions/293892/realpath-l-vs-p
+_test_realpath_L_s_sequence() {
+	_start
+	local functionEntryPWD
+	functionEntryPWD="$PWD"
+	
+	
+	local testPath_actual
+	local testPath
+	
+	mkdir -p "$safeTmp"/src
+	mkdir -p "$safeTmp"/sub
+	ln -s  "$safeTmp"/src "$safeTmp"/sub/lnk
+	
+	echo > "$safeTmp"/sub/point
+	
+	ln -s "$safeTmp"/sub/point "$safeTmp"/sub/lnk/ref
+	
+	#correct
+	#"$safeTmp"/sub/ref
+	#realpath -L "$safeTmp"/sub/lnk/../ref
+	
+	#default, wrong
+	#"$safeTmp"/ref
+	#realpath -P "$safeTmp"/sub/lnk/../ref
+	#echo -n '>'
+	#readlink -f "$safeTmp"/sub/lnk/../ref
+	
+	testPath_actual="$safeTmp"/sub/ref
+	
+	cd "$functionEntryPWD"
+	testPath=$(_realpath_L "$safeTmp"/sub/lnk/../ref)
+	[[ "$testPath" != "$testPath_actual" ]] && echo 'crit: ! _realpath_L' && _stop 1
+	
+	cd "$safeTmp"
+	testPath=$(_realpath_L ./sub/lnk/../ref)
+	[[ "$testPath" != "$testPath_actual" ]] && echo 'crit: ! _realpath_L' && _stop 1
+	
+	#correct
+	#"$safeTmp"/sub/lnk/ref
+	#realpath -L -s "$safeTmp"/sub/lnk/ref
+	
+	#default, wrong for some use cases
+	#"$safeTmp"/sub/point
+	#realpath -L "$safeTmp"/sub/lnk/ref
+	#echo -n '>'
+	#readlink -f "$safeTmp"/sub/lnk/ref
+	
+	testPath_actual="$safeTmp"/sub/lnk/ref
+	
+	cd "$functionEntryPWD"
+	testPath=$(_realpath_L_s "$safeTmp"/sub/lnk/ref)
+	[[ "$testPath" != "$testPath_actual" ]] && echo 'crit: ! _realpath_L_s' && _stop 1
+	
+	cd "$safeTmp"
+	testPath=$(_realpath_L_s ./sub/lnk/ref)
+	[[ "$testPath" != "$testPath_actual" ]] && echo 'crit: ! _realpath_L_s' && _stop 1
+	
+	
+	cd "$functionEntryPWD"
+	_stop
+}
+
+_test_realpath_L_s() {
+	#Optional safety check. Nonconformant realpath solution should be caught by synthetic test cases.
+	#_compat_realpath
+	#! [[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && echo 'crit: missing: realpath' && _stop 1
+	
+	"$scriptAbsoluteLocation" _test_realpath_L_s_sequence "$@"
+	[[ "$?" != "0" ]] && _stop 1
+	return 0
+}
+
+_test_realpath_L() {
+	_test_realpath_L_s "$@"
+}
+
+_test_realpath() {
+	_test_realpath_L_s "$@"
+}
+
+_compat_realpath() {
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	#Workaround, Mac. See https://github.com/mirage335/ubiquitous_bash/issues/1 .
+	export compat_realpath_bin=/opt/local/libexec/gnubin/realpath
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	export compat_realpath_bin=$(which realpath)
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	export compat_realpath_bin=/bin/realpath
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	export compat_realpath_bin=/usr/bin/realpath
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	# ATTENTION
+	# Command "readlink -f" or text processing can be used as fallbacks to obtain absolute path
+	# https://stackoverflow.com/questions/3572030/bash-script-absolute-path-with-osx
+	
+	export compat_realpath_bin=""
+	return 1
+}
+
+_compat_realpath_run() {
+	! _compat_realpath && return 1
+	
+	"$compat_realpath_bin" "$@"
+}
+
+_realpath_L() {
+	if ! _compat_realpath_run -L . > /dev/null 2>&1
+	then
+		readlink -f "$@"
+		return
+	fi
+	
+	realpath -L "$@"
+}
+
+_realpath_L_s() {
+	if ! _compat_realpath_run -L . > /dev/null 2>&1
+	then
+		readlink -f "$@"
+		return
+	fi
+	
+	realpath -L -s "$@"
+}
+
+
 #Critical prerequsites.
 _getAbsolute_criticalDep() {
-	! type realpath > /dev/null 2>&1 && return 1
+	#! type realpath > /dev/null 2>&1 && return 1
 	! type readlink > /dev/null 2>&1 && return 1
 	! type dirname > /dev/null 2>&1 && return 1
 	
-	#Known issue on Mac. See https://github.com/mirage335/ubiquitous_bash/issues/1 .
-	! realpath -L . > /dev/null 2>&1 && return 1
+	#Known to succeed under BusyBox (OpenWRT), NetBSD, and common Linux variants. No known failure modes. Extra precaution.
+	! readlink -f . > /dev/null 2>&1 && return 1
 	
 	return 0
 }
@@ -138,17 +371,17 @@ _getScriptAbsoluteLocation() {
 	
 	local absoluteLocation
 	if [[ (-e $PWD\/$0) && ($0 != "") ]] && [[ "$0" != "/"* ]]
-			then
-	absoluteLocation="$PWD"\/"$0"
-	absoluteLocation=$(realpath -L -s "$absoluteLocation")
-			else
-	absoluteLocation=$(realpath -L "$0")
+	then
+		absoluteLocation="$PWD"\/"$0"
+		absoluteLocation=$(_realpath_L_s "$absoluteLocation")
+	else
+		absoluteLocation=$(_realpath_L "$0")
 	fi
-
+	
 	if [[ -h "$absoluteLocation" ]]
-			then
-	absoluteLocation=$(readlink -f "$absoluteLocation")
-	absoluteLocation=$(realpath -L "$absoluteLocation")
+	then
+		absoluteLocation=$(readlink -f "$absoluteLocation")
+		absoluteLocation=$(_realpath_L "$absoluteLocation")
 	fi
 	echo $absoluteLocation
 }
@@ -182,13 +415,13 @@ _getAbsoluteLocation() {
 	
 	local absoluteLocation
 	if [[ (-e $PWD\/$1) && ($1 != "") ]] && [[ "$1" != "/"* ]]
-			then
-	absoluteLocation="$PWD"\/"$1"
-	absoluteLocation=$(realpath -L -s "$absoluteLocation")
-			else
-	absoluteLocation=$(realpath -L "$1")
+	then
+		absoluteLocation="$PWD"\/"$1"
+		absoluteLocation=$(_realpath_L_s "$absoluteLocation")
+	else
+		absoluteLocation=$(_realpath_L "$1")
 	fi
-	echo $absoluteLocation
+	echo "$absoluteLocation"
 }
 alias getAbsoluteLocation=_getAbsoluteLocation
 
@@ -344,10 +577,10 @@ _safeRMR() {
 	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" | grep -i '\.git$' >/dev/null 2>&1 && return 1
 	
 	#Validate necessary tools were available for path building and checks.
-	_checkDep realpath
-	_checkDep readlink
-	_checkDep dirname
-	_checkDep basename
+	#! type realpath > /dev/null 2>&1 && return 1
+	! type readlink > /dev/null 2>&1 && return 1
+	! type dirname > /dev/null 2>&1 && return 1
+	! type basename > /dev/null 2>&1 && return 1
 	
 	if [[ -e "$1" ]]
 	then
@@ -424,10 +657,10 @@ _safePath() {
 	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" | grep -i '\.git$' >/dev/null 2>&1 && return 1
 	
 	#Validate necessary tools were available for path building and checks.
-	_checkDep realpath
-	_checkDep readlink
-	_checkDep dirname
-	_checkDep basename
+	#! type realpath > /dev/null 2>&1 && return 1
+	! type readlink > /dev/null 2>&1 && return 1
+	! type dirname > /dev/null 2>&1 && return 1
+	! type basename > /dev/null 2>&1 && return 1
 	
 	if [[ -e "$1" ]]
 	then
@@ -443,8 +676,8 @@ _safeBackup() {
 	! type _getAbsolute_criticalDep > /dev/null 2>&1 && return 1
 	! _getAbsolute_criticalDep && return 1
 	
-	[[ ! -e "$scriptAbsoluteLocation" ]] && exit 1
-	[[ ! -e "$scriptAbsoluteFolder" ]] && exit 1
+	[[ ! -e "$scriptAbsoluteLocation" ]] && return 1
+	[[ ! -e "$scriptAbsoluteFolder" ]] && return 1
 	
 	#Fail sooner, avoiding irrelevant error messages. Especially important to cases where an upstream process has already removed the "$safeTmp" directory of a downstream process which reaches "_stop" later.
 	! [[ -e "$1" ]] && return 1
@@ -487,8 +720,8 @@ _command_safeBackup() {
 	! type _command_getAbsolute_criticalDep > /dev/null 2>&1 && return 1
 	! _command_getAbsolute_criticalDep && return 1
 	
-	[[ ! -e "$commandScriptAbsoluteLocation" ]] && exit 1
-	[[ ! -e "$commandScriptAbsoluteFolder" ]] && exit 1
+	[[ ! -e "$commandScriptAbsoluteLocation" ]] && return 1
+	[[ ! -e "$commandScriptAbsoluteFolder" ]] && return 1
 	
 	#Fail sooner, avoiding irrelevant error messages. Especially important to cases where an upstream process has already removed the "$safeTmp" directory of a downstream process which reaches "_stop" later.
 	! [[ -e "$1" ]] && return 1
@@ -517,7 +750,7 @@ _command_safeBackup() {
 	[[ "$1" == "$HOME" ]] && return 1
 	[[ "$1" == "$HOME/" ]] && return 1
 	
-	! type realpath > /dev/null 2>&1 && return 1
+	#! type realpath > /dev/null 2>&1 && return 1
 	! type readlink > /dev/null 2>&1 && return 1
 	! type dirname > /dev/null 2>&1 && return 1
 	! type basename > /dev/null 2>&1 && return 1
@@ -573,6 +806,22 @@ _uid() {
 	cat /dev/urandom 2> /dev/null | base64 2> /dev/null | tr -dc 'a-zA-Z0-9' 2> /dev/null | head -c "$uidLength" 2> /dev/null
 }
 
+_compat_stat_c_run() {
+	local functionOutput
+	
+	functionOutput=$(stat -c "$@" 2> /dev/null)
+	[[ "$?" == "0" ]] && echo "$functionOutput" && return 0
+	
+	#BSD
+	if stat --help 2>&1 | grep '\-f ' > /dev/null 2>&1
+	then
+		functionOutput=$(stat -f "$@" 2> /dev/null)
+		[[ "$?" == "0" ]] && echo "$functionOutput" && return 0
+	fi
+	
+	return 1
+}
+
 _permissions_directory_checkForPath() {
 	local parameterAbsoluteLocation
 	parameterAbsoluteLocation=$(_getAbsoluteLocation "$1")
@@ -581,7 +830,7 @@ _permissions_directory_checkForPath() {
 	
 	[[ "$parameterAbsoluteLocation" == "$PWD" ]] && ! [[ "$parameterAbsoluteLocation" == "$checkScriptAbsoluteFolder" ]] && return 1
 	
-	local permissions_readout=$(stat -c "%a" "$1")
+	local permissions_readout=$(_compat_stat_c_run "%a" "$1")
 	
 	local permissions_user
 	local permissions_group
@@ -601,8 +850,8 @@ _permissions_directory_checkForPath() {
 	local permissions_uid
 	local permissions_gid
 	
-	permissions_uid=$(stat -c "%u" "$1")
-	permissions_gid=$(stat -c "%g" "$1")
+	permissions_uid=$(_compat_stat_c_run "%u" "$1")
+	permissions_gid=$(_compat_stat_c_run "%g" "$1")
 	
 	#Normally these variables are available through ubiqutious bash, but this permissions check may be needed earlier in that global variables setting process.
 	local permissions_host_uid
@@ -660,6 +909,28 @@ _instance_internal() {
 	! [[ -e "$2" ]] && return 1
 	! [[ -d "$2" ]] && return 1
 	rsync -q -ax --exclude "/.cache" --exclude "/.git" "$@"
+}
+
+#echo -n
+_safeEcho() {
+	printf '%s' "$1"
+	shift
+	
+	[[ "$@" == "" ]] && return 0
+	
+	local currentArg
+	for currentArg in "$@"
+	do
+		printf '%s' " "
+		printf '%s' "$currentArg"
+	done
+	return 0
+}
+
+#echo
+_safeEcho_newline() {
+	_safeEcho "$@"
+	printf '\n'
 }
 
 #Universal debugging filesystem.
@@ -907,6 +1178,13 @@ _messageProcess() {
 	done
 	
 	return 0
+}
+
+_mustcarry() {
+	grep "$1" "$2" > /dev/null 2>&1 && return 0
+	
+	echo "$1" >> "$2"
+	return
 }
 
 #"$1" == file path
@@ -1405,10 +1683,17 @@ _validatePort() {
 }
 
 _testFindPort() {
-	_getDep ss
+	! _wantGetDep ss
+	! _wantGetDep sockstat
 	
-	local machineLowerPort=$(cat /proc/sys/net/ipv4/ip_local_port_range | cut -f1)
-	local machineUpperPort=$(cat /proc/sys/net/ipv4/ip_local_port_range | cut -f2)
+	! type ss > /dev/null 2>&1 && ! type sockstat > /dev/null 2>&1 && echo "missing socket detection" && _stop 1
+	
+	local machineLowerPort=$(cat /proc/sys/net/ipv4/ip_local_port_range 2> /dev/null | cut -f1)
+	local machineUpperPort=$(cat /proc/sys/net/ipv4/ip_local_port_range 2> /dev/null | cut -f2)
+	
+	[[ "$machineLowerPort" == "" ]] && echo "warn: autodetect: lower_port"
+	[[ "$machineUpperPort" == "" ]] && echo "warn: autodetect: upper_port"
+	[[ "$machineLowerPort" == "" ]] || [[ "$machineUpperPort" == "" ]] && return 0
 	
 	[[ "$machineLowerPort" -lt "1024" ]] && echo "invalid lower_port" && _stop 1
 	[[ "$machineLowerPort" -lt "32768" ]] && echo "warn: low lower_port"
@@ -1421,6 +1706,55 @@ _testFindPort() {
 	local testFoundPort
 	testFoundPort=$(_findPort)
 	! _validatePort "$testFoundPort" && echo "invalid port discovery" && _stop 1
+}
+
+#True if port open (in use).
+_checkPort_local() {
+	[[ "$1" == "" ]] && return 1
+	
+	if type ss > /dev/null 2>&1
+	then
+		ss -lpn | grep ':'"$1"' ' > /dev/null 2>&1
+		return $?
+	fi
+	
+	if type sockstat > /dev/null 2>&1
+	then
+		sockstat -46ln | grep '\.'"$1"' ' > /dev/null 2>&1
+		return $?
+	fi
+	
+	return 1
+}
+
+#Waits a reasonable time interval for port to be open (in use).
+#"$1" == port
+_waitPort_local() {
+	local checksDone
+	checksDone=0
+	while ! _checkPort_local "$1" && [[ "$checksDone" -lt 72 ]]
+	do
+		let checksDone+=1
+		sleep 0.1
+	done
+	
+	local checksDone
+	checksDone=0
+	while ! _checkPort_local "$1" && [[ "$checksDone" -lt 72 ]]
+	do
+		let checksDone+=1
+		sleep 0.3
+	done
+	
+	local checksDone
+	checksDone=0
+	while ! _checkPort_local "$1" && [[ "$checksDone" -lt 72 ]]
+	do
+		let checksDone+=1
+		sleep 1
+	done
+	
+	return 0
 }
 
 
@@ -1456,10 +1790,10 @@ _findPort() {
 	while true
 	do
 		for (( currentPort = lower_port ; currentPort <= upper_port ; currentPort++ )); do
-			if ! ss -lpn | grep ":$currentPort " > /dev/null 2>&1
+			if ! _checkPort_local "$currentPort"
 			then
 				sleep 0.1
-				if ! ss -lpn | grep ":$currentPort " > /dev/null 2>&1
+				if ! _checkPort_local "$currentPort"
 				then
 					break 2
 				fi
@@ -1476,7 +1810,7 @@ _findPort() {
 		
 	fi
 	
-	echo $currentPort
+	echo "$currentPort"
 	
 	_validatePort "$currentPort"
 }
@@ -4198,7 +4532,7 @@ _removeFilePrefix() {
 	local translatedFileParam
 	translatedFileParam=${1/#file:\/\/}
 	
-	echo "$translatedFileParam"
+	_safeEcho_newline "$translatedFileParam"
 }
 
 #Translates back slash parameters (UNIX paths) to forward slash parameters (MSW paths).
@@ -4206,7 +4540,7 @@ _slashBackToForward() {
 	local translatedFileParam
 	translatedFileParam=${1//\//\\}
 	
-	echo "$translatedFileParam"
+	_safeEcho_newline "$translatedFileParam"
 }
 
 _nixToMSW() {
@@ -4356,7 +4690,7 @@ _searchBaseDir() {
 		
 	done
 	
-	echo "$baseDir"
+	_safeEcho_newline "$baseDir"
 }
 
 #Converts to relative path, if provided a file parameter.
@@ -4366,23 +4700,23 @@ _searchBaseDir() {
 _localDir() {
 	if _checkBaseDirRemote "$1"
 	then
-		echo "$1"
+		_safeEcho_newline "$1"
 		return
 	fi
 	
 	if [[ ! -e "$2" ]]
 	then
-		echo "$1"
+		_safeEcho_newline "$1"
 		return
 	fi
 	
 	if [[ ! -e "$1" ]] || ! _pathPartOf "$1" "$2"
 	then
-		echo "$1"
+		_safeEcho_newline "$1"
 		return
 	fi
 	
-	[[ "$3" != "" ]] && echo -n "$3" && [[ "$3" != "/" ]] && echo -n "/"
+	[[ "$3" != "" ]] && _safeEcho "$3" && [[ "$3" != "/" ]] && _safeEcho "/"
 	realpath -L -s --relative-to="$2" "$1"
 	
 }
@@ -4405,6 +4739,8 @@ _virtUser() {
 	export sharedHostProjectDir="$sharedHostProjectDir"
 	export processedArgs
 	
+	[[ "$virtUserPWD" == "" ]] && export virtUserPWD="$outerPWD"
+	
 	if [[ -e /tmp/.X11-unix ]] && [[ "$DISPLAY" != "" ]] && type xauth > /dev/null 2>&1
 	then
 		export XSOCK=/tmp/.X11-unix
@@ -4415,17 +4751,18 @@ _virtUser() {
 	
 	if [[ "$sharedHostProjectDir" == "" ]]
 	then
-		sharedHostProjectDir=$(_searchBaseDir "$@" "$outerPWD")
+		sharedHostProjectDir=$(_searchBaseDir "$@" "$virtUserPWD")
 		#sharedHostProjectDir="$safeTmp"/shared
 		mkdir -p "$sharedHostProjectDir"
 	fi
 	
-	export localPWD=$(_localDir "$outerPWD" "$sharedHostProjectDir" "$sharedGuestProjectDir")
+	export localPWD=$(_localDir "$virtUserPWD" "$sharedHostProjectDir" "$sharedGuestProjectDir")
+	export virtUserPWD=
 	
 	#If $sharedGuestProjectDir matches MSW drive letter format, enable translation of other non-UNIX file parameter differences.
 	local enableMSWtranslation
 	enableMSWtranslation=false
-	echo "$sharedGuestProjectDir" | grep '^[[:alpha:]]\:\|^[[:alnum:]][[:alnum:]]\:\|^[[:alnum:]][[:alnum:]][[:alnum:]]\:' > /dev/null 2>&1 && enableMSWtranslation=true
+	_safeEcho_newline "$sharedGuestProjectDir" | grep '^[[:alpha:]]\:\|^[[:alnum:]][[:alnum:]]\:\|^[[:alnum:]][[:alnum:]][[:alnum:]]\:' > /dev/null 2>&1 && enableMSWtranslation=true
 	
 	#http://stackoverflow.com/questions/15420790/create-array-in-loop-from-number-of-arguments
 	#local processedArgs
@@ -4456,20 +4793,35 @@ _vector_virtUser() {
 	export sharedHostProjectDir=
 	export sharedGuestProjectDir=/home/user/project
 	_virtUser /tmp
-	#echo "${processedArgs[0]}"
+	#_safeEcho_newline "${processedArgs[0]}"
 	[[ "${processedArgs[0]}" != '/home/user/project/tmp' ]] && echo 'fail: _vector_virtUser' && _messageFAIL
 	
 	export sharedHostProjectDir=/
 	export sharedGuestProjectDir='Z:'
 	_virtUser /tmp
-	#echo "${processedArgs[0]}"
+	#_safeEcho_newline "${processedArgs[0]}"
 	[[ "${processedArgs[0]}" != 'Z:\tmp' ]] && echo 'fail: _vector_virtUser' && _messageFAIL
 	
 	export sharedHostProjectDir=/tmp
 	export sharedGuestProjectDir='/home/user/project/tmp'
 	_virtUser /tmp
-	#echo "${processedArgs[0]}"
+	#_safeEcho_newline "${processedArgs[0]}"
 	[[ "${processedArgs[0]}" != '/home/user/project/tmp/.' ]] && echo 'fail: _vector_virtUser' && _messageFAIL
+	
+	export virtUserPWD='/tmp'
+	export sharedHostProjectDir=/tmp
+	export sharedGuestProjectDir='/home/user/project/tmp'
+	_virtUser /tmp
+	#_safeEcho_newline "${processedArgs[0]}"
+	#_safeEcho_newline "$localPWD"
+	[[ "$localPWD" != '/home/user/project/tmp/.' ]] && echo 'fail: _vector_virtUser' && _messageFAIL
+	
+	export virtUserPWD='/tmp'
+	export sharedHostProjectDir=/tmp
+	export sharedGuestProjectDir='/home/user/project/tmp'
+	_virtUser -e /tmp
+	#_safeEcho_newline "${processedArgs[0]}"
+	[[ "${processedArgs[0]}" != '-e' ]] && echo 'fail: _vector_virtUser' && _messageFAIL
 	
 	
 	return 0
@@ -4479,6 +4831,247 @@ _vector_virtUser() {
 
 
 
+
+_test_abstractfs() {
+	_getDep md5sum
+}
+
+_abstractfs() {
+	#Nesting prohibited. Not fully tested.
+	# WARNING: May cause infinite recursion symlinks.
+	[[ "$abstractfs" != "" ]] && return 1
+	
+	_reset_abstractfs
+	
+	_prepare_abstract
+	
+	local abstractfs_command="$1"
+	shift
+	
+	export virtUserPWD="$PWD"
+	
+	export abstractfs_puid=$(_uid)
+	
+	_base_abstractfs "$@"
+	_name_abstractfs > /dev/null 2>&1
+	[[ "$abstractfs_name" == "" ]] && return 1
+	
+	export abstractfs="$abstractfs_root"/"$abstractfs_name"
+	
+	_set_share_abstractfs
+	_relink_abstractfs
+	_virtUser "$@"
+	
+	cd "$localPWD"
+	#cd "$abstractfs_base"
+	#cd "$abstractfs"
+	
+	local commandExitStatus
+	
+	#_scope_terminal "${processedArgs[@]}"
+	"$abstractfs_command" "${processedArgs[@]}"
+	commandExitStatus=$?
+	
+	_set_share_abstractfs_reset
+	_rmlink_abstractfs
+	
+	return "$commandExitStatus"
+}
+
+_reset_abstractfs() {
+	export abstractfs=
+	export abstractfs_base=
+	export abstractfs_name=
+	export abstractfs_puid=
+	export abstractfs_projectafs=
+}
+
+_prohibit_rmlink_abstractfs() {
+	#mkdir -p "$abstractfs_lock"/"$abstractfs_name"
+	mkdir -p "$abstractfs_lock"/"$abstractfs_name"/"$abstractfs_puid"
+}
+
+_permit_rmlink_abstractfs() {
+	#mkdir -p "$abstractfs_lock"/"$abstractfs_name"
+	rmdir "$abstractfs_lock"/"$abstractfs_name"/"$abstractfs_puid" > /dev/null 2>&1
+}
+
+_wait_rmlink_abstractfs() {
+	! [[ -e "$abstractfs_lock"/"$abstractfs_name"_rmlink ]] && return 0
+	sleep 0.1
+	
+	! [[ -e "$abstractfs_lock"/"$abstractfs_name"_rmlink ]] && return 0
+	sleep 0.3
+	
+	! [[ -e "$abstractfs_lock"/"$abstractfs_name"_rmlink ]] && return 0
+	sleep 1
+	
+	! [[ -e "$abstractfs_lock"/"$abstractfs_name"_rmlink ]] && return 0
+	sleep 3
+	
+	! [[ -e "$abstractfs_lock"/"$abstractfs_name"_rmlink ]] && return 0
+	return 1
+}
+
+_rmlink_abstractfs() {
+	mkdir -p "$abstractfs_lock"
+	_permit_rmlink_abstractfs
+	
+	! _wait_rmlink_abstractfs && return 1
+	
+	echo > "$abstractfs_lock"/"$abstractfs_name"_rmlink
+	
+	rmdir "$abstractfs_lock"/"$abstractfs_name" >/dev/null 2>&1 && _rmlink "$abstractfs"
+	rmdir "$abstractfs_root" >/dev/null 2>&1
+	
+	rm "$abstractfs_lock"/"$abstractfs_name"_rmlink
+}
+
+_relink_abstractfs() {
+	! _wait_rmlink_abstractfs && return 1
+	
+	mkdir -p "$abstractfs_lock"
+	_prohibit_rmlink_abstractfs
+	
+	! _wait_rmlink_abstractfs && return 1
+	
+	_relink "$sharedHostProjectDir" "$sharedGuestProjectDir"
+}
+
+#Precaution. Should not be a requirement in any production use.
+_set_share_abstractfs_reset() {
+	export sharedHostProjectDir="$sharedHostProjectDirDefault"
+	export sharedGuestProjectDir="$sharedGuestProjectDirDefault"
+}
+
+# ATTENTION: Overload with "core.sh".
+_set_share_abstractfs() {
+	_set_share_abstractfs_reset
+	
+	export sharedHostProjectDir="$abstractfs_base"
+	#export sharedHostProjectDir=$(_getAbsoluteFolder "$abstractfs_base")
+	export sharedGuestProjectDir="$abstractfs"
+	
+	#Blank default. Resolves to lowest directory shared by "$PWD" and "$@" .
+	#export sharedHostProjectDir="$sharedHostProjectDirDefault"
+}
+
+_describe_abstractfs() {
+	local localFunctionEntryPWD
+	localFunctionEntryPWD="$PWD"
+	
+	local testAbstractfsBase
+	testAbstractfsBase="$abstractfs_base"
+	[[ "$1" != "" ]] && testAbstractfsBase=$(_getAbsoluteLocation "$1")
+	
+	basename "$testAbstractfsBase"
+	! cd "$testAbstractfsBase" >/dev/null 2>&1 && cd "$localFunctionEntryPWD" && return 1
+	git rev-parse --abbrev-ref HEAD 2>/dev/null
+	git remote show origin 2>/dev/null
+	
+	cd "$localFunctionEntryPWD"
+}
+
+_base_abstractfs() {
+	export abstractfs_base=
+	[[ "$@" != "" ]] && export abstractfs_base=$(_searchBaseDir "$@")
+	[[ "$abstractfs_base" == "" ]] && export abstractfs_base=$(_searchBaseDir "$@" "$virtUserPWD")
+}
+
+_findProjectAFS_procedure() {
+	[[ "$ub_findProjectAFS_maxheight" -gt "120" ]] && return 1
+	let ub_findProjectAFS_maxheight="$ub_findProjectAFS_maxheight"+1
+	export ub_findProjectAFS_maxheight
+	
+	if [[ -e "./project.afs" ]]
+	then
+		_getAbsoluteLocation "./project.afs"
+		return 0
+	fi
+	
+	[[ "$1" == "/" ]] && return 1
+	
+	! cd .. > /dev/null 2>&1 && return 1
+	
+	_findProjectAFS_procedure
+}
+
+#Recursively searches for directories containing "project.afs".
+_findProjectAFS() {
+	local localFunctionEntryPWD
+	localFunctionEntryPWD="$PWD"
+	
+	cd "$1"
+	
+	_findProjectAFS_procedure
+	
+	cd "$localFunctionEntryPWD"
+}
+
+_projectAFS_here() {
+	cat << CZXWXcRMTo8EmM8i4d
+#!/usr/bin/env bash
+
+export abstractfs_name="$abstractfs_name"
+CZXWXcRMTo8EmM8i4d
+}
+
+_write_projectAFS() {
+	local testAbstractfsBase
+	testAbstractfsBase="$abstractfs_base"
+	[[ "$1" != "" ]] && testAbstractfsBase=$(_getAbsoluteLocation "$1")
+	
+	( [[ "$nofs" == "true" ]] || [[ "$afs_nofs" == "true" ]] ) && return
+	_projectAFS_here > "$testAbstractfsBase"/project.afs
+	chmod u+x "$testAbstractfsBase"/project.afs
+}
+
+# DANGER: Mandatory strict directory 8.3 compliance for this variable! Long subdirectory/filenames permitted thereafter.
+_default_name_abstractfs() {
+	#If "$abstractfs_name" is not saved to file, a consistent, compressed, naming scheme, is required.
+	if ( [[ "$nofs" == "true" ]] || [[ "$afs_nofs" == "true" ]] )
+	then
+		#echo $(basename "$abstractfs_base") | md5sum | head -c 8
+		_describe_abstractfs "$@" | md5sum | head -c 8
+		return
+	fi
+	
+	cat /dev/urandom 2> /dev/null | base64 2> /dev/null | tr -dc 'a-z' 2> /dev/null | head -c "1" 2> /dev/null
+	cat /dev/urandom 2> /dev/null | base64 2> /dev/null | tr -dc 'a-z0-9' 2> /dev/null | head -c "7" 2> /dev/null
+}
+
+#"$1" == "$abstractfs_base" || ""
+_name_abstractfs() {
+	export abstractfs_name=
+	
+	local testAbstractfsBase
+	testAbstractfsBase="$abstractfs_base"
+	[[ "$1" != "" ]] && testAbstractfsBase=$(_getAbsoluteLocation "$1")
+	
+	export abstractfs_projectafs=$(_findProjectAFS "$testAbstractfsBase")
+	[[ "$abstractfs_projectafs" != "" ]] && [[ -e "$abstractfs_projectafs" ]] && . "$abstractfs_projectafs" --noexec
+	
+	if [[ "$abstractfs_name" == "" ]]
+	then
+		export abstractfs_name=$(_default_name_abstractfs "$testAbstractfsBase")
+		if ( [[ "$nofs" == "true" ]] || [[ "$afs_nofs" == "true" ]] )
+		then
+			echo "$abstractfs_name"
+			return
+		fi
+		_write_projectAFS "$testAbstractfsBase"
+		export abstractfs_name=
+	fi
+	
+	export abstractfs_projectafs=$(_findProjectAFS "$testAbstractfsBase")
+	[[ "$abstractfs_projectafs" != "" ]] && [[ -e "$abstractfs_projectafs" ]] && . "$abstractfs_projectafs" --noexec
+	
+	( [[ "$nofs" == "true" ]] || [[ "$afs_nofs" == "true" ]] ) && [[ ! -e "$abstractfs_projectafs" ]] && return 1
+	[[ "$abstractfs_name" == "" ]] && return 1
+	
+	echo "$abstractfs_name"
+	return 0
+}
 
 _makeFakeHome_extra_layer0() {
 	_relink "$1"/.bashrc "$2"/.bashrc
@@ -4594,29 +5187,57 @@ _arbitrary_fakeHome_app() {
 
 #"$1" == lib source path (eg. "$scriptLib"/app/.app)
 #"$2" == home destination path (eg. ".app")
+# WARNING: Locking mechanism not intended to be relied on.
+# WARNING: Return status success may not reflect successful link/copy.
 _link_fakeHome() {
 	mkdir -p "$1" > /dev/null 2>&1
-	mkdir -p "$actualFakeHome"/"$2" > /dev/null 2>&1
+	mkdir -p "$actualFakeHome" > /dev/null 2>&1
+	mkdir -p "$globalFakeHome" > /dev/null 2>&1
+	
+	#If globalFakeHome symlinks are obsolete, subsequent _instance_internal operation may overwrite valid links with them. See _install_fakeHome .
+	rmdir "$globalFakeHome"/"$2" > /dev/null 2>&1
+	_relink "$1" "$globalFakeHome"/"$2"
 	
 	if [[ "$actualFakeHome" == "$globalFakeHome" ]] || [[ "$fakeHomeEditLib" == "true" ]]
 	then
-		rmdir "$actualFakeHome"/"$2"
+		rmdir "$actualFakeHome"/"$2" > /dev/null 2>&1
 		_relink "$1" "$actualFakeHome"/"$2"
 		return 0
 	fi
 	
-	#Actual directories will not be overwritten by symlinks when "$globalFakeHome" is copied to "$actualFakeHome".
+	#Actual files/directories will not be overwritten by symlinks when "$globalFakeHome" is copied to "$actualFakeHome". Remainder of this function dedicated to creating copies, before and instead of, symlinks.
+	
+	#rmdir "$actualFakeHome"/"$2" > /dev/null 2>&1
 	_rmlink "$actualFakeHome"/"$2"
+	
+	#Waits if copy is in progress, delaying program launch.
+	local lockWaitTimer
+	for (( lockWaitTimer = 0 ; lockWaitTimer <= 90 ; lockWaitTimer++ )); do
+		! [[ -e "$actualFakeHome"/"$2".lck ]] && break
+		sleep 0.3
+	done
+	
+	#Checks if copy has already been made.
+	[[ -e "$actualFakeHome"/"$2" ]] && return 0
+	
 	mkdir -p "$actualFakeHome"/"$2"
 	
+	#Copy file.
 	if ! [[ -d "$1" ]] && [[ -e "$1" ]]
 	then
-		rmdir "$actualFakeHome"/"$2"
+		rmdir "$actualFakeHome"/"$2" > /dev/null 2>&1
 		
+		echo > "$actualFakeHome"/"$2".lck
 		cp "$1" "$actualFakeHome"/"$2"
+		rm "$actualFakeHome"/"$2".lck
+		return 0
 	fi
 	
+	#Copy directory.
+	echo > "$actualFakeHome"/"$2".lck
 	_instance_internal "$1"/. "$actualFakeHome"/"$2"/
+	rm "$actualFakeHome"/"$2".lck
+	return 0
 }
 
 #Example. Override with "core.sh". Allows specific application configuration directories to reside outside of globalFakeHome, for organization, testing, and distribution.
@@ -4630,9 +5251,11 @@ _install_fakeHome_app() {
 _install_fakeHome() {
 	_install_fakeHome_app
 	
-	[[ "$actualFakeHome" == "$globalFakeHome" ]] && return 0
+	#Asterisk used where multiple global home folders are needed, following convention "$scriptLocal"/h_* . Used by webClient for _firefox_esr .
+	[[ "$actualFakeHome" == "$globalFakeHome"* ]] && return 0
 	
-	_instance_internal "$globalFakeHome"/. "$actualFakeHome"/
+	#Any globalFakeHome links created by "_link_fakeHome" are not to overwrite copies made to instancedFakeHome directories. Related errors emitted by "rsync" are normal, and therefore, silenced.
+	_instance_internal "$globalFakeHome"/. "$actualFakeHome"/ > /dev/null 2>&1
 }
 
 #Run before _fakeHome to use a ramdisk as home directory. Wrap within "_wantSudo" and ">/dev/null 2>&1" to use optionally. Especially helpful to limit SSD wear when dealing with moderately large (ie. ~2GB) fakeHome environments which must be instanced.
@@ -4652,13 +5275,7 @@ _umountRAM_fakeHome() {
 	return 0
 }
 
-#actualFakeHome
-	#default: "$instancedFakeHome"
-	#"$globalFakeHome" || "$instancedFakeHome" || "$shortFakeHome" || "$arbitraryFakeHome"/arbitrary
-#keepFakeHome
-	#default: true
-	#"true" || "false"
-_fakeHome() {
+_begin_fakeHome() {
 	#Recursive fakeHome prohibited. Instead, start new script session, with new sessionid, and keepFakeHome=false. Do not workaround without a clear understanding why this may endanger your application.
 	[[ "$setFakeHome" == "true" ]] && return 1
 	#_resetFakeHomeEnv_nokeep
@@ -4676,10 +5293,31 @@ _fakeHome() {
 	
 	export fakeHomeEditLib="false"
 	
+	export realScriptAbsoluteLocation="$scriptAbsoluteLocation"
+	export realScriptAbsoluteFolder="$scriptAbsoluteFolder"
+	export realSessionID="$sessionid"
+}
+
+#actualFakeHome
+	#default: "$instancedFakeHome"
+	#"$globalFakeHome" || "$instancedFakeHome" || "$shortFakeHome" || "$arbitraryFakeHome"/arbitrary
+#keepFakeHome
+	#default: true
+	#"true" || "false"
+_fakeHome() {
+	_begin_fakeHome "$@"
 	local fakeHomeExitStatus
 	
-	env -i DISPLAY="$DISPLAY" XAUTH="$XAUTH" XAUTHORITY="$XAUTHORITY" XSOCK="$XSOCK" realHome="$realHome" keepFakeHome="$keepFakeHome" HOME="$HOME" setFakeHome="$setFakeHome" TERM="${TERM}" SHELL="${SHELL}" PATH="${PATH}" dbus-run-session "$@"
+	if ! _safeEcho_newline "$_JAVA_OPTIONS" | grep "$HOME" > /dev/null 2>&1
+	then
+		export _JAVA_OPTIONS=-Duser.home="$HOME"' '"$_JAVA_OPTIONS"
+	fi
+	
+	env -i DISPLAY="$DISPLAY" XAUTH="$XAUTH" XAUTHORITY="$XAUTHORITY" XSOCK="$XSOCK" realHome="$realHome" keepFakeHome="$keepFakeHome" HOME="$HOME" setFakeHome="$setFakeHome" TERM="${TERM}" SHELL="${SHELL}" PATH="${PATH}" _JAVA_OPTIONS=${_JAVA_OPTIONS}scriptAbsoluteLocation="$scriptAbsoluteLocation" sessionid="$sessionid" scriptAbsoluteFolder="$scriptAbsoluteFolder" realSessionID="$realSessionID" realScriptAbsoluteLocation="$realScriptAbsoluteLocation" realScriptAbsoluteFolder="$realScriptAbsoluteFolder" dbus-run-session "$@"
+	#env -i DISPLAY="$DISPLAY" XAUTH="$XAUTH" XAUTHORITY="$XAUTHORITY" XSOCK="$XSOCK" realHome="$realHome" keepFakeHome="$keepFakeHome" HOME="$HOME" setFakeHome="$setFakeHome" TERM="${TERM}" SHELL="${SHELL}" PATH="${PATH}" _JAVA_OPTIONS=${_JAVA_OPTIONS}scriptAbsoluteLocation="$scriptAbsoluteLocation" scriptAbsoluteFolder="$scriptAbsoluteFolder" dbus-run-session "$@"
+	#dbus-run-session "$@"
 	#"$@"
+	#. "$@"
 	fakeHomeExitStatus=$?
 	
 	#_unmakeFakeHome > /dev/null 2>&1
@@ -4688,6 +5326,63 @@ _fakeHome() {
 	
 	return "$fakeHomeExitStatus"
 }
+
+#Do NOT keep parent session under fakeHome environment. Do NOT regain parent session if "~/.ubcore/.ubcorerc" is imported (typically upon shell launch).
+_fakeHome_specific() {
+	_begin_fakeHome "$@"
+	local fakeHomeExitStatus
+	
+	if ! _safeEcho_newline "$_JAVA_OPTIONS" | grep "$HOME" > /dev/null 2>&1
+	then
+		export _JAVA_OPTIONS=-Duser.home="$HOME"' '"$_JAVA_OPTIONS"
+	fi
+	
+	#env -i DISPLAY="$DISPLAY" XAUTH="$XAUTH" XAUTHORITY="$XAUTHORITY" XSOCK="$XSOCK" realHome="$realHome" keepFakeHome="$keepFakeHome" HOME="$HOME" setFakeHome="$setFakeHome" TERM="${TERM}" SHELL="${SHELL}" PATH="${PATH}" _JAVA_OPTIONS=${_JAVA_OPTIONS}scriptAbsoluteLocation="$scriptAbsoluteLocation" scriptAbsoluteFolder="$scriptAbsoluteFolder" realScriptAbsoluteLocation="$realScriptAbsoluteLocation" realScriptAbsoluteFolder="$realScriptAbsoluteFolder" dbus-run-session "$@"
+	env -i DISPLAY="$DISPLAY" XAUTH="$XAUTH" XAUTHORITY="$XAUTHORITY" XSOCK="$XSOCK" realHome="$realHome" keepFakeHome="$keepFakeHome" HOME="$HOME" setFakeHome="$setFakeHome" TERM="${TERM}" SHELL="${SHELL}" PATH="${PATH}" _JAVA_OPTIONS=${_JAVA_OPTIONS}dbus-run-session "$@"
+	#dbus-run-session "$@"
+	#"$@"
+	#. "$@"
+	fakeHomeExitStatus=$?
+	
+	#_unmakeFakeHome > /dev/null 2>&1
+	
+	_resetFakeHomeEnv_nokeep
+	
+	return "$fakeHomeExitStatus"
+}
+
+#No workarounds, run in current shell.
+# WARNING: Not recommended. No production use. Do not launch GUI applications.
+_fakeHome_embedded() {
+	_begin_fakeHome "$@"
+	local fakeHomeExitStatus
+	
+	if ! _safeEcho_newline "$_JAVA_OPTIONS" | grep "$HOME" > /dev/null 2>&1
+	then
+		export _JAVA_OPTIONS=-Duser.home="$HOME"' '"$_JAVA_OPTIONS"
+	fi
+	
+	#env -i DISPLAY="$DISPLAY" XAUTH="$XAUTH" XAUTHORITY="$XAUTHORITY" XSOCK="$XSOCK" realHome="$realHome" keepFakeHome="$keepFakeHome" HOME="$HOME" setFakeHome="$setFakeHome" TERM="${TERM}" SHELL="${SHELL}" PATH="${PATH}" _JAVA_OPTIONS=${_JAVA_OPTIONS}scriptAbsoluteLocation="$scriptAbsoluteLocation" scriptAbsoluteFolder="$scriptAbsoluteFolder" realScriptAbsoluteLocation="$realScriptAbsoluteLocation" realScriptAbsoluteFolder="$realScriptAbsoluteFolder" dbus-run-session "$@"
+	#env -i DISPLAY="$DISPLAY" XAUTH="$XAUTH" XAUTHORITY="$XAUTHORITY" XSOCK="$XSOCK" realHome="$realHome" keepFakeHome="$keepFakeHome" HOME="$HOME" setFakeHome="$setFakeHome" TERM="${TERM}" SHELL="${SHELL}" PATH="${PATH}" _JAVA_OPTIONS=${_JAVA_OPTIONS}scriptAbsoluteLocation="$scriptAbsoluteLocation" scriptAbsoluteFolder="$scriptAbsoluteFolder" dbus-run-session "$@"
+	#dbus-run-session "$@"
+	#"$@"
+	. "$@"
+	fakeHomeExitStatus=$?
+	
+	#_unmakeFakeHome > /dev/null 2>&1
+	
+	_resetFakeHomeEnv_nokeep
+	
+	return "$fakeHomeExitStatus"
+}
+
+_fakeHome_() {
+	_fakeHome_embedded "$@"
+}
+
+
+
+
 
 _userFakeHome_procedure() {
 	export actualFakeHome="$instancedFakeHome"
@@ -5362,7 +6057,7 @@ _createHTG_MSW() {
 	
 	_preCommand_MSW >> "$hostToGuestFiles"/application.bat
 	
-	echo "${processedArgs[@]}" >> "$hostToGuestFiles"/application.bat
+	_safeEcho_newline "${processedArgs[@]}" >> "$hostToGuestFiles"/application.bat
 	 
 	echo ""  >> "$hostToGuestFiles"/application.bat
 	
@@ -5418,7 +6113,7 @@ _createHTG_UNIX() {
 	
 	echo '#!/usr/bin/env bash' >> "$hostToGuestFiles"/cmd.sh
 	echo "export localPWD=""$localPWD" >> "$hostToGuestFiles"/cmd.sh
-	echo "/media/bootdisc/ubiquitous_bash.sh _dropBootdisc ${processedArgs[@]}" >> "$hostToGuestFiles"/cmd.sh
+	_safeEcho_newline "/media/bootdisc/ubiquitous_bash.sh _dropBootdisc ${processedArgs[@]}" >> "$hostToGuestFiles"/cmd.sh
 }
 
 _commandBootdisc() {
@@ -5714,6 +6409,14 @@ _mountChRoot() {
 	sudo -n cp "$scriptAbsoluteLocation" "$absolute1"/usr/local/bin/ubiquitous_bash.sh
 	sudo -n chmod 0755 "$absolute1"/usr/local/bin/ubiquitous_bash.sh
 	sudo -n chown root:root "$absolute1"/usr/local/bin/ubiquitous_bash.sh
+	
+	if [[ -e "$scriptAbsoluteFolder"/lean.sh ]]
+	then
+		sudo -n cp "$scriptAbsoluteFolder"/lean.sh "$absolute1"/usr/local/bin/lean.sh
+		sudo -n chmod 0755 "$absolute1"/usr/local/bin/lean.sh
+		sudo -n chown root:root "$absolute1"/usr/local/bin/lean.sh
+	fi
+	
 	sudo -n cp "$scriptBin"/gosu-armel "$absolute1"/usr/local/share/ubcore/bin/gosu-armel
 	sudo -n cp "$scriptBin"/gosu-amd64 "$absolute1"/usr/local/share/ubcore/bin/gosu-amd64
 	sudo -n cp "$scriptBin"/gosu-i386 "$absolute1"/usr/local/share/ubcore/bin/gosu-i386
@@ -7411,7 +8114,7 @@ _dosbox_sequence() {
 	
 	#Alternatively, "-c" could be used with dosbox, but this seems not to work well with multiple parameters.
 	#Note "DOS" will not like paths not conforming to 8.3 .
-	echo "${processedArgs[@]}" >> "$instancedVirtDir"/dosbox.conf
+	_safeEcho_newline "${processedArgs[@]}" >> "$instancedVirtDir"/dosbox.conf
 	
 	dosbox -conf "$instancedVirtDir"/dosbox.conf
 	
@@ -8067,6 +8770,205 @@ _ubide() {
 	_atom . ./ubiquitous_bash.sh "$@"
 }
 
+_test_deveclipse() {
+	_getDep eclipse
+	
+	! [[ -e /usr/share/eclipse/dropins/cdt ]] && echo 'warn: missing: /usr/share/eclipse/dropins/cdt'
+}
+
+#"$1" == workspaceDir
+_prepare_eclipse_workspace() {
+	local local_workspace_import="$1"/_import
+	
+	mkdir -p "$local_workspace_import"
+	
+	local local_workspace_abstract
+	
+	#Scope
+	if [[ "$ub_specimen" != "" ]] && [[ "$ub_scope" != "" ]]
+	then
+		local_workspace_abstract=$(_name_abstractfs "$ub_specimen")
+		
+		mkdir -p "$local_workspace_import"/"$local_workspace_abstract"
+		
+		_relink "$ub_specimen" "$local_workspace_import"/"$local_workspace_abstract"/specimen
+		_relink "$ub_scope" "$local_workspace_import"/"$local_workspace_abstract"/scope
+		
+		#Export directories to be used for projects/sets to be stored in shared repositories.
+		mkdir -p "$ub_specimen"/_export
+		_relink "$ub_specimen"/_export "$local_workspace_import"/"$local_workspace_abstract"/_export
+		
+		_messagePlain_good 'eclipse: install: specimen, scope: '"$local_workspace_import"/"$local_workspace_abstract"
+	fi
+	
+	#Arbitary Project
+	if [[ "$arbitraryProjectDir" != "" ]]
+	then
+		local_workspace_abstract=$(_name_abstractfs "$arbitraryProjectDir")
+		
+		mkdir -p "$local_workspace_import"/"$local_workspace_abstract"
+		
+		_relink "$arbitraryProjectDir" "$local_workspace_import"/"$local_workspace_abstract"
+		
+		#Export directories to be used for projects/sets to be stored in shared repositories.
+		mkdir -p "$arbitraryProjectDir"/_export
+		_relink "$arbitraryProjectDir"/_export "$local_workspace_import"/"$local_workspace_abstract"/_export
+		
+		_messagePlain_good 'eclipse: install: arbitraryProjectDir: '"$local_workspace_import"/"$local_workspace_abstract"
+	fi
+}
+
+#Creates user and export directories for eclipse instance. User directories to be used for project specific workspace. Export directories to be used for projects/sets to be stored in shared repositories.
+#"$eclipse_path" (eg. "$ub_specimen")
+#"eclipse_root" (eg. ".eclipser")
+_prepare_eclipse() {
+	#Special meaning of "$PWD" when run under _abstractfs ("$localPWD") is intended.
+	if [[ "$eclipse_path" == "" ]]
+	then
+		export eclipse_path=$(_getAbsoluteLocation "$PWD"/..)
+		[[ "$ub_specimen" != "" ]] && export eclipse_path=$(_getAbsoluteLocation "$ub_specimen"/..)
+		#[[ "$ub_scope" != "" ]] && export eclipse_path=$(_getAbsoluteLocation "$ub_scope")
+	fi
+	
+	if [[ "$eclipse_root" == "" ]]
+	then
+		export eclipse_root=$(_name_abstractfs "$ub_specimen")
+		export eclipse_root="$eclipse_root".ecr
+		#export eclipse_root='eclipser'
+		#export eclipse_root='.eclipser'
+	fi
+	
+	export eclipse_user='user'
+	
+	#export eclipse_export='_export'
+	
+	export eclipse_data='workspace'
+	export eclipse_config='configuration'
+	
+	mkdir -p "$eclipse_path"/"$eclipse_root"
+	mkdir -p "$eclipse_path"/"$eclipse_root"/"$eclipse_user"
+	#mkdir -p "$eclipse_path"/"$eclipse_root"/"$eclipse_export"
+	mkdir -p "$eclipse_path"/"$eclipse_root"/"$eclipse_data"
+	mkdir -p "$eclipse_path"/"$eclipse_root"/"$eclipse_user"/"$eclipse_config"
+	
+	#_mustcarry 'eclipser/' "$eclipse_path"/"$eclipse_root"/.gitignore
+	_mustcarry "$eclipse_user"/ "$eclipse_path"/"$eclipse_root"/.gitignore
+	_mustcarry "$eclipse_data"/ "$eclipse_path"/"$eclipse_root"/.gitignore
+	_mustcarry "$eclipse_user"/"$eclipse_config"/ "$eclipse_path"/"$eclipse_root"/.gitignore
+}
+
+_install_fakeHome_eclipse() {	
+	_link_fakeHome "$eclipse_path"/"$eclipse_root"/"$eclipse_data" workspace
+	
+	_link_fakeHome "$eclipse_path"/"$eclipse_root"/"$eclipse_user" .eclipse
+	#_link_fakeHome "$eclipse_path"/"$eclipse_root"/"$eclipse_user"/"$eclipse_config" .eclipse/configuration
+}
+
+_eclipse_procedure() {
+	_prepare_eclipse
+	_prepare_eclipse_workspace "$eclipse_path"/"$eclipse_root"/"$eclipse_data"
+	_messagePlain_probe eclipse -data "$eclipse_path"/"$eclipse_root"/"$eclipse_data" -configuration "$eclipse_path"/"$eclipse_root"/"$eclipse_user"/"$eclipse_config" "$@"
+	eclipse -data "$eclipse_path"/"$eclipse_root"/"$eclipse_data" -configuration "$eclipse_path"/"$eclipse_root"/"$eclipse_user"/"$eclipse_config" "$@"
+}
+
+_eclipse_config() {
+	_eclipse_procedure "$@"
+}
+
+_eclipse_stock() {
+	_prepare_eclipse_workspace "$HOME"/workspace
+	eclipse -data "$HOME"/workspace "$@"
+}
+
+_eclipse_home() {
+	_prepare_eclipse_workspace "$HOME"/workspace
+	_messagePlain_probe eclipse -data "$HOME"/workspace -configuration "$HOME"/.eclipse/configuration "$@"
+	eclipse -data "$HOME"/workspace -configuration "$HOME"/.eclipse/configuration "$@"
+}
+
+_eclipse_edit() {
+	_prepare_eclipse
+	
+	export actualFakeHome="$shortFakeHome"
+	#export actualFakeHome="$globalFakeHome"
+	export fakeHomeEditLib="true"
+	export keepFakeHome="true"
+	
+	_install_fakeHome_eclipse
+	
+	_fakeHome "$scriptAbsoluteLocation" --parent _eclipse_home "$@"
+}
+
+_eclipse_user() {
+	_prepare_eclipse
+	
+	export actualFakeHome="$shortFakeHome"
+	#export actualFakeHome="$globalFakeHome"
+	export fakeHomeEditLib="false"
+	export keepFakeHome="true"
+	
+	_install_fakeHome_eclipse
+	
+	_fakeHome "$scriptAbsoluteLocation" --parent _eclipse_home "$@"
+}
+
+
+
+
+
+_eclipse() {
+	_eclipse_config "$@"
+}
+
+#Simulated client/server discussion testing.
+
+_prepare_query_prog() {
+	true
+}
+
+_prepare_query() {
+	export ub_queryclientdir="$queryTmp"/client
+	export qc="$ub_queryclientdir"
+	
+	export ub_queryclient="$ub_queryclientdir"/script
+	export qce="$ub_queryclient"
+	
+	export ub_queryserverdir="$queryTmp"/server
+	export qs="$ub_queryserverdir"
+	
+	export ub_queryserver="$ub_queryserverdir"/script
+	export qse="$ub_queryserver"
+	
+	mkdir -p "$ub_queryclientdir"
+	mkdir -p "$ub_queryserverdir"
+	
+	! [[ -e "$ub_queryclient" ]] && cp "$scriptAbsoluteLocation" "$ub_queryclient"
+	! [[ -e "$ub_queryserver" ]] && cp "$scriptAbsoluteLocation" "$ub_queryserver"
+	
+	_prepare_query_prog "$@"
+}
+
+_queryServer() {
+	_prepare_query
+	"$ub_queryserver" "$@"
+}
+_qs() {
+	_queryServer "$@"
+}
+
+_queryClient() {
+	_prepare_query
+	"$ub_queryclient" "$@"
+}
+_qc() {
+	_queryClient "$@"
+}
+
+#Example only. Overload with "core.sh" or similar.
+_query() {
+	( cd "$qc" ; _queryClient _bin cat | ( cd "$qs" ; _queryServer _bin cat | ( cd "$ub_queryserverdir" ; _queryClient _bin cat )))
+}
+
 #Example, override with "core.sh" .
 _scope_compile() {
 	true
@@ -8077,10 +8979,22 @@ _scope_attach() {
 	_messagePlain_nominal '_scope_attach'
 	
 	_scope_here > "$ub_scope"/.devenv
+	chmod u+x "$ub_scope"/.devenv
 	_scope_readme_here > "$ub_scope"/README
 	
-	_scope_command_write _scope_compile
-	#_scope_command_external_here _scope_compile
+	_scope_command_write _scope_terminal_procedure
+	
+	_scope_command_write _scope_konsole_procedure
+	_scope_command_write _scope_dolphin_procedure
+	_scope_command_write _scope_eclipse_procedure
+	_scope_command_write _scope_atom_procedure
+	
+	_scope_command_write _query
+	_scope_command_write _qs
+	_scope_command_write _qc
+	
+	#_scope_command_write _compile
+	#_scope_command_external_here _compile
 }
 
 _prepare_scope() {
@@ -8096,6 +9010,10 @@ _relink_scope() {
 	
 	_relink "$safeTmp" "$ub_scope"/safeTmp
 	_relink "$shortTmp" "$ub_scope"/shortTmp
+	
+	# DANGER: Creates infinitely recursive symlinks.
+	#[[ -e "$abstractfs_projectafs" ]] && _relink "$abstractfs_projectafs" "$ub_scope"/project.afs
+	#[[ -d "$abstractfs" ]] && _relink "$abstractfs" "$ub_scope"/afs
 }
 
 _ops_scope() {
@@ -8114,6 +9032,8 @@ _start_scope() {
 	
 	export ub_specimen=$(_getAbsoluteLocation "$1")
 	export specimen="$ub_specimen"
+	export ub_specimen_basename=$(basename "$ub_specimen")
+	export basename="$ub_specimen_basename"
 	[[ ! -d "$ub_specimen" ]] && _messagePlain_bad 'missing: specimen= '"$ub_specimen" && _stop 1
 	[[ ! -e "$ub_specimen" ]] && _messagePlain_bad 'missing: specimen= '"$ub_specimen" && _stop 1
 	
@@ -8140,20 +9060,24 @@ _start_scope() {
 	return 0
 }
 
-_scope_terminal() {
-	export PS1='\[\033[01;40m\]\[\033[01;36m\]+\[\033[01;34m\]-|\[\033[01;31m\]${?}:${debian_chroot:+($debian_chroot)}\[\033[01;33m\]\u\[\033[01;32m\]@\h\[\033[01;36m\]\[\033[01;34m\])-\[\033[01;36m\]------------------------\[\033[01;34m\]-(\[\033[01;35m\]$(date +%H:%M:%S\ .%d)\[\033[01;34m\])-\[\033[01;36m\]- -|\[\033[00m\]\n\[\033[01;40m\]\[\033[01;36m\]+\[\033[01;34m\]-|\[\033[37m\][\w]\[\033[00m\]\n\[\033[01;36m\]+\[\033[01;34m\]-|\#) \[\033[36m\]'"$ub_scope_name"'>\[\033[00m\] '
-	echo
-	/bin/bash --norc
-	echo
-}
-
-#Defaults, bash terminal, wait for kill signal, wait for line break, etc. Override with "core.sh" . May run file manager, terminal, etc.
+#Defaults, bash terminal, wait for kill signal, wait for EOF, etc. Override with "core.sh" . May run file manager, terminal, etc.
 # WARNING: Scope should only be terminated by process or user managing this interaction (eg. by closing file manager). Manager must be aware of any inter-scope dependencies.
+#"$@" <commands>
 _scope_interact() {
 	_messagePlain_nominal '_scope_interact'
 	#read > /dev/null 2>&1
 	
-	_scope_terminal
+	_scopePrompt
+	
+	if [[ "$@" == "" ]]
+	then
+		_scope_terminal_procedure
+		#_scope_eclipse_procedure
+		#eclipse
+# 		return
+	fi
+	
+	"$@"
 }
 
 
@@ -8168,13 +9092,20 @@ _scope_sequence() {
 	_scope_attach "$@"
 	
 	#User interaction.
-	_scope_interact
+	shift
+	_scope_interact "$@"
 	
 	_stop
 }
 
+# ATTENTION: Overload with "core.sh" or similar!
+_scope_prog() {
+	[[ "$ub_scope_name" == "" ]] && export ub_scope_name='scope'
+}
+
 _scope() {
-	export ub_scope_name='scope'
+	_scope_prog
+	[[ "$ub_scope_name" == "" ]] && export ub_scope_name='scope'
 	"$scriptAbsoluteLocation" _scope_sequence "$@"
 }
 
@@ -8194,6 +9125,8 @@ _scope_var_here() {
 	cat << CZXWXcRMTo8EmM8i4d
 export ub_specimen="$ub_specimen"
 export specimen="$specimen"
+export ub_specimen_basename="$ub_specimen_basename"
+export basename="$basename"
 export ub_scope_name="$ub_scope_name"
 export ub_scope="$ub_scope"
 export scope="$scope"
@@ -8255,10 +9188,91 @@ CZXWXcRMTo8EmM8i4d
 
 _scope_command_write() {
 	_scope_command_here "$@" > "$ub_scope"/"$1"
+	chmod u+x "$ub_scope"/"$1"
 }
 
 _scope_command_external_write() {
-	_scope_command_here "$@" > "$ub_scope"/"$1"
+	_scope_command_external_here "$@" > "$ub_scope"/"$1"
+	chmod u+x "$ub_scope"/"$1"
+}
+
+_scopePrompt() {
+	[[ "$ub_scope_name" == "" ]] && return 0
+	
+	export PS1='\[\033[01;40m\]\[\033[01;36m\]+\[\033[01;34m\]-|\[\033[01;31m\]${?}:${debian_chroot:+($debian_chroot)}\[\033[01;33m\]\u\[\033[01;32m\]@\h\[\033[01;36m\]\[\033[01;34m\])-\[\033[01;36m\]------------------------\[\033[01;34m\]-(\[\033[01;35m\]$(date +%H:%M:%S\ .%d)\[\033[01;34m\])-\[\033[01;36m\]- -|\[\033[00m\]\n\[\033[01;40m\]\[\033[01;36m\]+\[\033[01;34m\]-|\[\033[37m\][\w]\[\033[00m\]\n\[\033[01;36m\]+\[\033[01;34m\]-|\#) \[\033[36m\]'"$ub_scope_name"'>\[\033[00m\] '
+}
+
+_scope_terminal_procedure() {
+	_tryExec '_scopePrompt'
+	#_tryExec '_visualPrompt'
+	
+	export PATH="$PATH":"$ub_scope"
+	echo
+	/usr/bin/env bash --norc
+	echo
+}
+
+_scope_terminal() {
+	local shiftParam1
+	shiftParam1="$1"
+	shift
+	
+	_scope_prog "$@"
+	_scope "$shiftParam1" "_scope_terminal_procedure" "$@"
+}
+
+_scope_eclipse_procedure() {
+	_eclipse "$@"
+}
+
+_scope_eclipse() {
+	local shiftParam1
+	shiftParam1="$1"
+	shift
+	
+	_scope_prog "$@"
+	_scope "$shiftParam1" "_scope_eclipse_procedure" "$@"
+}
+
+_scope_atom_procedure() {
+	"$scriptAbsoluteLocation" _atom_tmp_sequence "$ub_specimen" "$@"  > /dev/null 2>&1
+}
+
+# WARNING: No production use. Not to be relied upon. May be removed.
+_scope_atom() {
+	local shiftParam1
+	shiftParam1="$1"
+	shift
+	
+	_scope_prog "$@"
+	_scope "$shiftParam1" "_scope_atom_procedure" "$@"
+}
+
+_scope_konsole_procedure() {
+	_messagePlain_probe konsole --workdir "$ub_specimen" "$@"
+	konsole --workdir "$ub_specimen" "$@"
+}
+
+_scope_konsole() {
+	local shiftParam1
+	shiftParam1="$1"
+	shift
+	
+	_scope_prog "$@"
+	_scope "$shiftParam1" "_scope_konsole_procedure" -p tabtitle="$ub_scope_name" "$@"
+}
+
+_scope_dolphin_procedure() {
+	dolphin "$ub_specimen" "$@"
+}
+
+_scope_dolphin() {
+	local shiftParam1
+	shiftParam1="$1"
+	shift
+	
+	_scope_prog "$@"
+	_scope "$shiftParam1" "_scope_dolphin_procedure" "$@"
 }
 
 _testGit() {
@@ -8324,7 +9338,7 @@ _gitImport() {
 	cd "$scriptFolder"
 }
 
-_findGit_sequence() {
+_findGit_procedure() {
 	cd "$1"
 	shift
 	
@@ -8334,7 +9348,7 @@ _findGit_sequence() {
 		return 0
 	fi
 	
-	find -L . -mindepth 1 -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _findGit_sequence {} "$@" \;
+	find -L . -mindepth 1 -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _findGit_procedure {} "$@" \;
 }
 
 #Recursively searches for directories containing ".git".
@@ -8345,7 +9359,7 @@ _findGit() {
 		return 0
 	fi
 	
-	find -L . -mindepth 1 -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _findGit_sequence {} "$@" \;
+	find -L . -mindepth 1 -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _findGit_procedure {} "$@" \;
 }
 
 _gitPull() {
@@ -10059,12 +11073,14 @@ _resetOps() {
 _importShortcuts() {
 	_tryExec "_resetFakeHomeEnv"
 	
-	if ! [[ "$PATH" == *":""$HOME""/bin"* ]] && ! [[ "$PATH" == "$HOME""/bin"* ]] && [[ -e "$HOME"/bin ]]
+	if ! [[ "$PATH" == *":""$HOME""/bin"* ]] && ! [[ "$PATH" == "$HOME""/bin"* ]] && [[ -e "$HOME"/bin ]] && [[ -d "$HOME"/bin ]]
 	then
 		export PATH="$PATH":"$HOME"/bin
 	fi
 	
-	_visualPrompt
+	_tryExec "_visualPrompt"
+	
+	_tryExec "_scopePrompt"
 }
 
 _gitPull_ubiquitous() {
@@ -10077,7 +11093,7 @@ _gitClone_ubiquitous() {
 
 _selfCloneUbiquitous() {
 	"$scriptBin"/.ubrgbin.sh _ubrgbin_cpA "$scriptBin" "$ubcoreUBdir"/ > /dev/null 2>&1
-	cp -a "$scriptAbsoluteFolder"/lean.sh "$ubcoreUBdir"/lean.sh
+	cp -a "$scriptAbsoluteFolder"/lean.sh "$ubcoreUBdir"/lean.sh > /dev/null 2>&1
 	cp -a "$scriptAbsoluteLocation" "$ubcoreUBdir"/ubiquitous_bash.sh
 }
 
@@ -10201,6 +11217,8 @@ _resetUbiquitous() {
 _refresh_anchors_ubiquitous() {
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_ubide
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_ubdb
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_true
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_false
 }
 
 _anchor() {
@@ -10914,8 +11932,10 @@ _x220_vgaTablet() {
 #####Basic Variable Management
 
 #####Global variables.
-#Fixed unique identifier for ubiquitious bash created global resources, such as bootdisc images to be automaticaly mounted by guests. Should NOT be changed.
-export ubiquitiousBashID="uk4uPhB663kVcygT0q"
+#Fixed unique identifier for ubiquitious bash created global resources, such as bootdisc images to be automaticaly mounted by guests. Should NEVER be changed.
+export ubiquitiousBashIDnano=uk4u
+export ubiquitiousBashIDshort="$ubiquitiousBashIDnano"PhB6
+export ubiquitiousBashID="$ubiquitiousBashIDshort"63kVcygT0q
 
 ##Parameters
 #"--shell", ""
@@ -10948,7 +11968,8 @@ then
 	export sessionid=$(_uid)
 	_messagePlain_probe_expr 'default: scriptAbsoluteLocation= '"$scriptAbsoluteLocation"'\n ''default: scriptAbsoluteFolder= '"$scriptAbsoluteFolder"'\n ''default: sessionid= '"$sessionid" | _user_log-ub
 else	#FAIL, implies [[ "$ub_import" == "true" ]]
-	_messagePlain_bad 'import: fall: fail' | _user_log-ub && return 1
+	_messagePlain_bad 'import: fall: fail' | _user_log-ub
+	return 1 >/dev/null 2>&1
 	exit 1
 fi
 [[ "$importScriptLocation" != "" ]] && export importScriptLocation=
@@ -10966,10 +11987,13 @@ export initPWD="$PWD"
 intInitPWD="$PWD"
 
 #Temporary directories.
-export safeTmp="$scriptAbsoluteFolder"/w_"$sessionid"
-export scopeTmp="$scriptAbsoluteFolder"/s_"$sessionid"
+export safeTmp="$scriptAbsoluteFolder""$tmpPrefix"/w_"$sessionid"
+export scopeTmp="$scriptAbsoluteFolder""$tmpPrefix"/s_"$sessionid"
+export queryTmp="$scriptAbsoluteFolder""$tmpPrefix"/q_"$sessionid"
 export logTmp="$safeTmp"/log
-export shortTmp=/tmp/w_"$sessionid"	#Solely for misbehaved applications called upon.
+#Solely for misbehaved applications called upon.
+export shortTmp=/tmp/w_"$sessionid"
+
 export scriptBin="$scriptAbsoluteFolder"/_bin
 export scriptBundle="$scriptAbsoluteFolder"/_bundle
 export scriptLib="$scriptAbsoluteFolder"/_lib
@@ -10998,18 +12022,31 @@ export scriptTokens="$scriptLocal"/.tokens
 
 #Reboot Detection Token Storage
 # WARNING WIP. Not tested on all platforms. Requires a directory to be tmp/ram fs mounted. Worst case result is to preserve tokens across reboots.
-export bootTmp="$scriptLocal"			#Fail-Safe
-[[ -d /tmp ]] && export bootTmp=/tmp		#Typical BSD
-[[ -d /dev/shm ]] && export bootTmp=/dev/shm	#Typical Linux
+#Fail-Safe
+export bootTmp="$scriptLocal"
+#Typical BSD
+[[ -d /tmp ]] && export bootTmp='/tmp'
+#Typical Linux
+[[ -d /dev/shm ]] && export bootTmp='/dev/shm'
 
 #Specialized temporary directories.
+
+# WARNING: Only one user per (virtual) machine. Requires _prepare_abstract . Not default.
+# DANGER: Mandatory strict directory 8.3 compliance for this variable! Long subdirectory/filenames permitted thereafter.
+# DANGER: Permitting multi-user access to this directory may cause unexpected behavior, including inconsitent file ownership.
+#Consistent absolute path abstraction.
+export abstractfs_root=/tmp/"$ubiquitiousBashIDnano"
+( [[ "$bootTmp" == '/dev/shm' ]] || [[ "$bootTmp" == '/tmp' ]] ) && export abstractfs_root="$bootTmp"/"$ubiquitiousBashIDnano"
+export abstractfs_lock=/"$bootTmp"/"$ubiquitiousBashID"/afslock
+
 # Unusually, safeTmpSSH must not be interpreted by client, and therefore is single quoted.
 # TODO Test safeTmpSSH variants including spaces in path.
 export safeTmpSSH='~/.sshtmp/.s_'"$sessionid"
 
 #Process control.
 export pidFile="$safeTmp"/.pid
-export uPID="cwrxuk6wqzbzV6p8kPS8J4APYGX"	#Invalid do-not-match default.
+#Invalid do-not-match default.
+export uPID="cwrxuk6wqzbzV6p8kPS8J4APYGX"
 
 export daemonPidFile="$scriptLocal"/.bgpid
 
@@ -11030,7 +12067,8 @@ export AUTOSSH_GATETIME=15
 
 #Monolithic shared files.
 export lock_pathlock="$scriptLocal"/l_path
-export lock_quicktmp="$scriptLocal"/l_qt	#Used to make locking operations atomic as possible.
+#Used to make locking operations atomic as possible.
+export lock_quicktmp="$scriptLocal"/l_qt
 export lock_emergency="$scriptLocal"/l_em
 export lock_open="$scriptLocal"/l_o
 export lock_opening="$scriptLocal"/l_opening
@@ -11095,6 +12133,9 @@ export globalBuildFS="$globalBuildDir"/fs
 export globalBuildTmp="$globalBuildDir"/tmp
 
 
+#Reset prefixes.
+export tmpPrefix=""
+
 #Machine information.
 export hostMemoryTotal=$(cat /proc/meminfo | grep MemTotal | tr -cd '[[:digit:]]')
 export hostMemoryAvailable=$(cat /proc/meminfo | grep MemAvailable | tr -cd '[[:digit:]]')
@@ -11141,7 +12182,10 @@ export shortFakeHome="$shortTmp"/h
 export arbitraryFakeHome="$shortTmp"/a
 
 #Default, override.
+# WARNING: Do not disable.
 export actualFakeHome="$instancedFakeHome"
+export fakeHomeEditLib="false"
+export keepFakeHome="true"
 
 #Automatically assigns appropriate memory quantities to nested virtual machines.
 _vars_vmMemoryAllocationDefault() {
@@ -11680,6 +12724,17 @@ _extra() {
 	true
 }
 
+_prepare_abstract() {
+	! mkdir -p "$abstractfs_root" && exit 1
+	chmod 0700 "$abstractfs_root" > /dev/null 2>&1
+	! chmod 700 "$abstractfs_root" && exit 1
+	! chown "$USER":"$USER" "$abstractfs_root" && exit 1
+	
+	! mkdir -p "$abstractfs_lock" && exit 1
+	chmod 0700 "$abstractfs_lock" > /dev/null 2>&1
+	! chmod 700 "$abstractfs_lock" && exit 1
+	! chown "$USER":"$USER" "$abstractfs_lock" && exit 1
+}
 
 _prepare() {
 	
@@ -11692,6 +12747,8 @@ _prepare() {
 	! mkdir -p "$scriptLocal" && exit 1
 	
 	! mkdir -p "$bootTmp" && exit 1
+	
+	#_prepare_abstract
 	
 	_extra
 	_prepare_prog
@@ -11751,8 +12808,14 @@ _stop() {
 	fi
 	
 	rm -f "$pidFile" > /dev/null 2>&1	#Redundant, as this usually resides in "$safeTmp".
-	rm -f "$ub_scope" > /dev/null 2>&1	#Symlink, or nonexistent.
-	[[ -e "$scopeTmp" ]] && _safeRMR "$scopeTmp"			#Only created if needed by scope.
+	
+	if [[ -e "$scopeTmp" ]] && [[ -e "$scopeTmp"/.pid ]] && [[ "$$" == $(cat "$scopeTmp"/.pid 2>/dev/null) ]]
+	then
+		rm -f "$ub_scope" > /dev/null 2>&1			#Symlink, or nonexistent.
+		[[ -e "$scopeTmp" ]] && _safeRMR "$scopeTmp"		#Only created if needed by scope.
+	fi
+	
+	[[ -e "$queryTmp" ]] && _safeRMR "$queryTmp"			#Only created if needed by query.
 	_safeRMR "$shortTmp"
 	_safeRMR "$safeTmp"
 	
@@ -11781,7 +12844,7 @@ _stop_emergency() {
 	export EMERGENCYSHUTDOWN=true
 	
 	#Not yet using _tryExec since this function would typically result from user intervention, or system shutdown, both emergency situations in which an error message would be ignored if not useful. Higher priority is guaranteeing execution if needed and available.
-	_closeChRoot_emergency
+	_tryExec "_closeChRoot_emergency"
 	
 	#Daemon uses a separate instance, and will not be affected by previous actions, possibly even if running in the foreground.
 	#jobs -p >> "$daemonPidFile" #Could derrange the correct order of descendent job termination.
@@ -12176,7 +13239,27 @@ _test_prog() {
 _test() {
 	_start
 	
-	_tryExec "_test_permissions_ubiquitous"
+	_messageNormal "Permissions..."
+	
+	! _test_permissions_ubiquitous && _messageFAIL
+	
+	_messagePASS
+	
+	echo -n -e '\E[1;32;46m Argument length...	\E[0m'
+	
+	local testArgLength
+	
+	! testArgLength=$(getconf ARG_MAX) && _messageFAIL && _stop 1
+	[[ "$testArgLength" -lt 131071 ]] && _messageFAIL && _stop 1
+	
+	_messagePASS
+	
+	_messageNormal "Absolute pathfinding..."
+	#_tryExec "_test_getAbsoluteLocation"
+	_messagePASS
+	
+	echo -n -e '\E[1;32;46m Timing...		\E[0m'
+	_timetest
 	
 	_messageNormal "Dependency checking..."
 	
@@ -12194,8 +13277,10 @@ _test() {
 	_getDep head
 	_getDep tail
 	
+	_getDep wc
 	
-	_getDep realpath
+	
+	! _compat_realpath && ! _wantGetDep realpath && echo 'realpath missing'
 	_getDep readlink
 	_getDep dirname
 	_getDep basename
@@ -12216,6 +13301,8 @@ _test() {
 	_getDep trap
 	_getDep return
 	_getDep set
+	
+	_getDep printf
 	
 	_getDep dd
 	
@@ -12267,6 +13354,7 @@ _test() {
 	
 	_tryExec "_test_mkboot"
 	
+	_tryExec "_test_abstractfs"
 	_tryExec "_test_fakehome"
 	_tryExec "_testChRoot"
 	_tryExec "_testQEMU"
@@ -12301,7 +13389,9 @@ _test() {
 	
 	_tryExec "_test_synergy"
 	
+	_tryExec "_test_devatom"
 	_tryExec "_test_devemacs"
+	_tryExec "_test_deveclipse"
 	
 	_tryExec "_test_ethereum"
 	_tryExec "_test_ethereum_parity"
@@ -12310,17 +13400,13 @@ _test() {
 	
 	_messagePASS
 	
-	echo -n -e '\E[1;32;46m Timing...		\E[0m'
-	_timetest
-	
-	_test_prog
-	
 	_messageNormal 'Vector...'
 	_vector
 	_messagePASS
 	
-	_stop
+	_test_prog
 	
+	_stop
 }
 
 _testBuilt_prog() {
@@ -12528,7 +13614,18 @@ _firefox_command() {
 	local firefoxVersion
 	if firefoxVersion=$(firefox --version | sed 's/Mozilla\ Firefox\ //g' | cut -d\. -f1)
 	#if which 'firefox'
-	#if _wantDep 'firefox'
+	#if _wantDep 'firefox'efox/active-update.xml
+        modified:   _local/setups/firefox/firefox/application.ini
+        modified:   _local/setups/firefox/firefox/browser/blocklist.xml
+        deleted:    _local/setups/firefox/firefox/browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/activity-stream@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/aushelper@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/firefox@getpocket.com.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/followonsearch@mozilla.com.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/formautofill@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/onboarding@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/screenshots@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/webcompat@mozilla.
 	#if false
 	then
 		if [[ "$firefoxVersion" -ge "59" ]]
@@ -12704,6 +13801,7 @@ _webClient() {
 _refresh_anchors() {
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_webClient
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_editHome
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_editHome_multitasking
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_v_firefox
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_esr
@@ -12851,6 +13949,7 @@ _init_deps() {
 	export enUb_DosBox=""
 	export enUb_msw=""
 	export enUb_fakehome=""
+	export enUb_abstractfs=""
 	export enUb_buildBash=""
 	export enUb_buildBashUbiquitous=""
 	
@@ -12936,36 +14035,43 @@ _deps_virt() {
 }
 
 _deps_chroot() {
+	_deps_notLean
 	_deps_virt
 	export enUb_ChRoot="true"
 }
 
 _deps_qemu() {
+	_deps_notLean
 	_deps_virt
 	export enUb_QEMU="true"
 }
 
 _deps_vbox() {
+	_deps_notLean
 	_deps_virt
 	export enUb_vbox="true"
 }
 
 _deps_docker() {
+	_deps_notLean
 	_deps_virt
 	export enUb_docker="true"
 }
 
 _deps_wine() {
 	_deps_notLean
+	_deps_virt
 	export enUb_wine="true"
 }
 
 _deps_dosbox() {
 	_deps_notLean
+	_deps_virt
 	export enUb_DosBox="true"
 }
 
 _deps_msw() {
+	_deps_notLean
 	_deps_virt
 	_deps_qemu
 	_deps_vbox
@@ -12975,7 +14081,14 @@ _deps_msw() {
 
 _deps_fakehome() {
 	_deps_notLean
+	_deps_virt
 	export enUb_fakehome="true"
+}
+
+_deps_abstractfs() {
+	_deps_notLean
+	_deps_virt
+	export enUb_abstractfs="true"
 }
 
 _deps_command() {
@@ -13117,6 +14230,7 @@ _compile_bash_deps() {
 		_deps_dosbox
 		_deps_msw
 		_deps_fakehome
+		_deps_abstractfs
 		
 		_deps_git
 		_deps_bup
@@ -13158,6 +14272,7 @@ _compile_bash_deps() {
 		_deps_dosbox
 		_deps_msw
 		_deps_fakehome
+		_deps_abstractfs
 		
 		_deps_git
 		_deps_bup
@@ -13230,6 +14345,8 @@ _compile_bash_essential_utilities() {
 	
 	includeScriptList+=( "generic"/messaging.sh )
 	
+	includeScriptList+=( "generic"/config/mustcarry.sh )
+	
 	[[ "$enUb_buildBash" == "true" ]] && includeScriptList+=( "build/bash"/include_bash.sh )
 }
 
@@ -13247,9 +14364,9 @@ _compile_bash_utilities() {
 	
 	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/bindmountmanager.sh )
 	
-	includeScriptList+=( "generic/filesystem/mounts"/waitumount.sh )
+	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/waitumount.sh )
 	
-	includeScriptList+=( "generic/filesystem/mounts"/mountchecks.sh )
+	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/mountchecks.sh )
 	
 	includeScriptList+=( "generic/process"/waitforprocess.sh )
 	
@@ -13309,6 +14426,9 @@ _compile_bash_utilities_virtualization() {
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/osTranslation.sh )
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/localPathTranslation.sh )
 	
+	[[ "$enUb_abstractfs" == "true" ]] && includeScriptList+=( "virtualization/abstractfs"/abstractfs.sh )
+	[[ "$enUb_abstractfs" == "true" ]] && includeScriptList+=( "virtualization/abstractfs"/abstractfsvars.sh )
+	
 	[[ "$enUb_fakehome" == "true" ]] && includeScriptList+=( "virtualization/fakehome"/fakehomemake.sh )
 	[[ "$enUb_fakehome" == "true" ]] && includeScriptList+=( "virtualization/fakehome"/fakehome.sh )
 	[[ "$enUb_fakehome" == "true" ]] && includeScriptList+=( "virtualization/fakehome"/fakehomeuser.sh )
@@ -13366,9 +14486,15 @@ _compile_bash_shortcuts() {
 	
 	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devemacs.sh )
 	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devatom.sh )
+	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_abstractfs" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/deveclipse.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope.sh )
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope_here.sh )
+	includeScriptList+=( "shortcuts/dev/query"/devquery.sh )
+	
+	includeScriptList+=( "shortcuts/dev/scope"/devscope.sh )
+	includeScriptList+=( "shortcuts/dev/scope"/devscope_here.sh )
+	
+	# WARNING: Some apps may have specific dependencies (eg. fakeHome, abstractfs, eclipse, atom).
+	includeScriptList+=( "shortcuts/dev/scope"/devscope_app.sh )
 	
 	[[ "$enUb_git" == "true" ]] && includeScriptList+=( "shortcuts/git"/git.sh )
 	[[ "$enUb_git" == "true" ]] && includeScriptList+=( "shortcuts/git"/gitBare.sh )
@@ -13449,6 +14575,8 @@ _compile_bash_vars_basic() {
 _compile_bash_vars_global() {
 	export includeScriptList
 	
+	#Optional, rarely used, intended for overload.
+	includeScriptList+=( "structure"/prefixvars.sh )
 	
 	#####Global variables.
 	includeScriptList+=( "structure"/globalvars.sh )
@@ -13507,6 +14635,7 @@ _compile_bash_environment() {
 	includeScriptList+=( "structure"/localfs.sh )
 	
 	includeScriptList+=( "structure"/localenv.sh )
+	includeScriptList+=( "structure"/localenv_prog.sh )
 }
 
 _compile_bash_installation() {
@@ -13929,6 +15058,10 @@ _false() {
 }
 _echo() {
 	echo "$@"
+}
+
+_diag() {
+	echo "$sessionid"
 }
 
 #Stop if script is imported, parameter not specified, and command not given.

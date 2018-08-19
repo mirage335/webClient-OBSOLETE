@@ -92,19 +92,32 @@ _messagePlain_probe_expr '$0= '"$0"'\n ''$1= '"$1"'\n ''ub_import= '"$ub_import"
 # WARNING Import from shell can be detected. Import from script cannot. Asserting that script has been imported is possible. Asserting that script has not been imported is not possible. Users may be protected from interactive mistakes. Script developers are NOT protected.
 if [[ "$ub_import_param" == "--profile" ]]
 then
-	([[ "$profileScriptLocation" == "" ]] ||  [[ "$profileScriptFolder" == "" ]]) && _messagePlain_bad 'import: profile: missing: profileScriptLocation, missing: profileScriptFolder' | _user_log-ub && return 1
+	if ([[ "$profileScriptLocation" == "" ]] ||  [[ "$profileScriptFolder" == "" ]]) && _messagePlain_bad 'import: profile: missing: profileScriptLocation, missing: profileScriptFolder' | _user_log-ub
+	then
+		return 1 >/dev/null 2>&1
+		exit 1
+	fi
 elif ([[ "$ub_import_param" == "--parent" ]] || [[ "$ub_import_param" == "--embed" ]] || [[ "$ub_import_param" == "--return" ]] || [[ "$ub_import_param" == "--devenv" ]])
 then
-	([[ "$scriptAbsoluteLocation" == "" ]] || [[ "$scriptAbsoluteFolder" == "" ]] || [[ "$sessionid" == "" ]]) && _messagePlain_bad 'import: parent: missing: scriptAbsoluteLocation, missing: scriptAbsoluteFolder, missing: sessionid' | _user_log-ub && return 1
+	if ([[ "$scriptAbsoluteLocation" == "" ]] || [[ "$scriptAbsoluteFolder" == "" ]] || [[ "$sessionid" == "" ]]) && _messagePlain_bad 'import: parent: missing: scriptAbsoluteLocation, missing: scriptAbsoluteFolder, missing: sessionid' | _user_log-ub
+	then
+		return 1 >/dev/null 2>&1
+		exit 1
+	fi
 elif [[ "$ub_import_param" == "--call" ]] || [[ "$ub_import_param" == "--script" ]] || [[ "$ub_import_param" == "--bypass" ]] || [[ "$ub_import_param" == "--shell" ]] || ([[ "$ub_import" == "true" ]] && [[ "$ub_import_param" == "" ]])
 then
-	([[ "$importScriptLocation" == "" ]] ||  [[ "$importScriptFolder" == "" ]]) && _messagePlain_bad 'import: call: missing: importScriptLocation, missing: importScriptFolder' | _user_log-ub && return 1
+	if ([[ "$importScriptLocation" == "" ]] ||  [[ "$importScriptFolder" == "" ]]) && _messagePlain_bad 'import: call: missing: importScriptLocation, missing: importScriptFolder' | _user_log-ub
+	then
+		return 1 >/dev/null 2>&1
+		exit 1
+	fi
 elif [[ "$ub_import" != "true" ]]	#"--shell", ""
 then
 	_messagePlain_warn 'import: undetected: cannot determine if imported' | _user_log-ub
 	true #no problem
 else	#FAIL, implies [[ "$ub_import" == "true" ]]
-	_messagePlain_bad 'import: fall: fail' | _user_log-ub && return 1
+	_messagePlain_bad 'import: fall: fail' | _user_log-ub
+	return 1 >/dev/null 2>&1
 	exit 1
 fi
 
@@ -114,14 +127,234 @@ fi
 
 #####Utilities
 
+_test_getAbsoluteLocation_sequence() {
+	_start
+	
+	local testScriptLocation_actual
+	local testScriptLocation
+	local testScriptFolder
+	
+	local testLocation_actual
+	local testLocation
+	local testFolder
+	
+	#script location/folder work directories
+	mkdir -p "$safeTmp"/sAL_dir
+	cp "$scriptAbsoluteLocation" "$safeTmp"/sAL_dir/script
+	ln -s "$safeTmp"/sAL_dir/script "$safeTmp"/sAL_dir/lnk
+	[[ ! -e "$safeTmp"/sAL_dir/script ]] && _stop 1
+	[[ ! -e "$safeTmp"/sAL_dir/lnk ]] && _stop 1
+	
+	ln -s "$safeTmp"/sAL_dir "$safeTmp"/sAL_lnk
+	[[ ! -e "$safeTmp"/sAL_lnk/script ]] && _stop 1
+	[[ ! -e "$safeTmp"/sAL_lnk/lnk ]] && _stop 1
+	
+	#_getScriptAbsoluteLocation
+	testScriptLocation_actual=$("$safeTmp"/sAL_dir/script _getScriptAbsoluteLocation)
+	[[ "$safeTmp"/sAL_dir/script != "$testScriptLocation_actual" ]] && echo 'crit: "$safeTmp"/sAL_dir/script != "$testScriptLocation_actual"' && _stop 1
+	
+	testScriptLocation=$("$safeTmp"/sAL_dir/script _getScriptAbsoluteLocation)
+	[[ "$testScriptLocation" != "$testScriptLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_dir/script' && _stop 1
+	testScriptLocation=$("$safeTmp"/sAL_dir/lnk _getScriptAbsoluteLocation)
+	[[ "$testScriptLocation" != "$testScriptLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_dir/lnk' && _stop 1
+	
+	testScriptLocation=$("$safeTmp"/sAL_lnk/script _getScriptAbsoluteLocation)
+	[[ "$testScriptLocation" != "$testScriptLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_lnk/script' && _stop 1
+	testScriptLocation=$("$safeTmp"/sAL_lnk/lnk _getScriptAbsoluteLocation)
+	[[ "$testScriptLocation" != "$testScriptLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_lnk/lnk' && _stop 1
+	
+	#_getScriptAbsoluteFolder
+	testScriptFolder_actual=$("$safeTmp"/sAL_dir/script _getScriptAbsoluteFolder)
+	[[ "$safeTmp"/sAL_dir != "$testScriptFolder_actual" ]] && echo 'crit: "$safeTmp"/sAL_dir != "$testScriptFolder_actual"' && _stop 1
+	
+	testScriptFolder=$("$safeTmp"/sAL_dir/script _getScriptAbsoluteFolder)
+	[[ "$testScriptFolder" != "$testScriptFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_dir/script' && _stop 1
+	testScriptFolder=$("$safeTmp"/sAL_dir/lnk _getScriptAbsoluteFolder)
+	[[ "$testScriptFolder" != "$testScriptFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_dir/lnk' && _stop 1
+	
+	testScriptFolder=$("$safeTmp"/sAL_lnk/script _getScriptAbsoluteFolder)
+	[[ "$testScriptFolder" != "$testScriptFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_lnk/script' && _stop 1
+	testScriptFolder=$("$safeTmp"/sAL_lnk/lnk _getScriptAbsoluteFolder)
+	[[ "$testScriptFolder" != "$testScriptFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_lnk/lnk' && _stop 1
+	
+	
+	#_getAbsoluteLocation
+	testLocation_actual=$("$safeTmp"/sAL_dir/script _getAbsoluteLocation "$safeTmp"/sAL_dir/script)
+	[[ "$safeTmp"/sAL_dir/script != "$testLocation_actual" ]] && echo 'crit: "$safeTmp"/sAL_dir/script != "$testLocation_actual"' && _stop 1
+	
+	testLocation=$("$safeTmp"/sAL_dir/script _getAbsoluteLocation "$safeTmp"/sAL_dir/script)
+	[[ "$testLocation" != "$testLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_dir/script' && _stop 1
+	testLocation=$("$safeTmp"/sAL_dir/lnk _getAbsoluteLocation "$safeTmp"/sAL_dir/lnk)
+	[[ "$testLocation" != "$testLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_dir/lnk' && _stop 1
+	
+	testLocation=$("$safeTmp"/sAL_lnk/script _getAbsoluteLocation "$safeTmp"/sAL_lnk/script)
+	[[ "$testLocation" != "$testLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_lnk/script' && _stop 1
+	testLocation=$("$safeTmp"/sAL_lnk/lnk _getAbsoluteLocation "$safeTmp"/sAL_lnk/lnk)
+	[[ "$testLocation" != "$testLocation_actual" ]] && echo 'crit: ! location "$safeTmp"/sAL_lnk/lnk' && _stop 1
+	
+	#_getAbsoluteFolder
+	testFolder_actual=$("$safeTmp"/sAL_dir/script _getAbsoluteFolder "$safeTmp"/sAL_dir/script)
+	[[ "$safeTmp"/sAL_dir != "$testFolder_actual" ]] && echo 'crit: "$safeTmp"/sAL_dir != "$testFolder_actual"' && _stop 1
+	
+	testFolder=$("$safeTmp"/sAL_dir/script _getAbsoluteFolder "$safeTmp"/sAL_dir/script)
+	[[ "$testFolder" != "$testFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_dir/script' && _stop 1
+	testFolder=$("$safeTmp"/sAL_dir/lnk _getAbsoluteFolder "$safeTmp"/sAL_dir/script)
+	[[ "$testFolder" != "$testFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_dir/lnk' && _stop 1
+	
+	testFolder=$("$safeTmp"/sAL_lnk/script _getAbsoluteFolder "$safeTmp"/sAL_lnk/script)
+	[[ "$testFolder" != "$testFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_lnk/script' && _stop 1
+	testFolder=$("$safeTmp"/sAL_lnk/lnk _getAbsoluteFolder "$safeTmp"/sAL_lnk/script)
+	[[ "$testFolder" != "$testFolder_actual" ]] && echo 'crit: ! folder "$safeTmp"/sAL_lnk/lnk' && _stop 1
+	
+	_stop
+}
+
+_test_getAbsoluteLocation() {
+	"$scriptAbsoluteLocation" _test_getAbsoluteLocation_sequence "$@"
+	[[ "$?" != "0" ]] && _stop 1
+	return 0
+}
+
+#https://unix.stackexchange.com/questions/293892/realpath-l-vs-p
+_test_realpath_L_s_sequence() {
+	_start
+	local functionEntryPWD
+	functionEntryPWD="$PWD"
+	
+	
+	local testPath_actual
+	local testPath
+	
+	mkdir -p "$safeTmp"/src
+	mkdir -p "$safeTmp"/sub
+	ln -s  "$safeTmp"/src "$safeTmp"/sub/lnk
+	
+	echo > "$safeTmp"/sub/point
+	
+	ln -s "$safeTmp"/sub/point "$safeTmp"/sub/lnk/ref
+	
+	#correct
+	#"$safeTmp"/sub/ref
+	#realpath -L "$safeTmp"/sub/lnk/../ref
+	
+	#default, wrong
+	#"$safeTmp"/ref
+	#realpath -P "$safeTmp"/sub/lnk/../ref
+	#echo -n '>'
+	#readlink -f "$safeTmp"/sub/lnk/../ref
+	
+	testPath_actual="$safeTmp"/sub/ref
+	
+	cd "$functionEntryPWD"
+	testPath=$(_realpath_L "$safeTmp"/sub/lnk/../ref)
+	[[ "$testPath" != "$testPath_actual" ]] && echo 'crit: ! _realpath_L' && _stop 1
+	
+	cd "$safeTmp"
+	testPath=$(_realpath_L ./sub/lnk/../ref)
+	[[ "$testPath" != "$testPath_actual" ]] && echo 'crit: ! _realpath_L' && _stop 1
+	
+	#correct
+	#"$safeTmp"/sub/lnk/ref
+	#realpath -L -s "$safeTmp"/sub/lnk/ref
+	
+	#default, wrong for some use cases
+	#"$safeTmp"/sub/point
+	#realpath -L "$safeTmp"/sub/lnk/ref
+	#echo -n '>'
+	#readlink -f "$safeTmp"/sub/lnk/ref
+	
+	testPath_actual="$safeTmp"/sub/lnk/ref
+	
+	cd "$functionEntryPWD"
+	testPath=$(_realpath_L_s "$safeTmp"/sub/lnk/ref)
+	[[ "$testPath" != "$testPath_actual" ]] && echo 'crit: ! _realpath_L_s' && _stop 1
+	
+	cd "$safeTmp"
+	testPath=$(_realpath_L_s ./sub/lnk/ref)
+	[[ "$testPath" != "$testPath_actual" ]] && echo 'crit: ! _realpath_L_s' && _stop 1
+	
+	
+	cd "$functionEntryPWD"
+	_stop
+}
+
+_test_realpath_L_s() {
+	#Optional safety check. Nonconformant realpath solution should be caught by synthetic test cases.
+	#_compat_realpath
+	#! [[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && echo 'crit: missing: realpath' && _stop 1
+	
+	"$scriptAbsoluteLocation" _test_realpath_L_s_sequence "$@"
+	[[ "$?" != "0" ]] && _stop 1
+	return 0
+}
+
+_test_realpath_L() {
+	_test_realpath_L_s "$@"
+}
+
+_test_realpath() {
+	_test_realpath_L_s "$@"
+}
+
+_compat_realpath() {
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	#Workaround, Mac. See https://github.com/mirage335/ubiquitous_bash/issues/1 .
+	export compat_realpath_bin=/opt/local/libexec/gnubin/realpath
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	export compat_realpath_bin=$(which realpath)
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	export compat_realpath_bin=/bin/realpath
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	export compat_realpath_bin=/usr/bin/realpath
+	[[ -e "$compat_realpath_bin" ]] && [[ "$compat_realpath_bin" != "" ]] && return 0
+	
+	# ATTENTION
+	# Command "readlink -f" or text processing can be used as fallbacks to obtain absolute path
+	# https://stackoverflow.com/questions/3572030/bash-script-absolute-path-with-osx
+	
+	export compat_realpath_bin=""
+	return 1
+}
+
+_compat_realpath_run() {
+	! _compat_realpath && return 1
+	
+	"$compat_realpath_bin" "$@"
+}
+
+_realpath_L() {
+	if ! _compat_realpath_run -L . > /dev/null 2>&1
+	then
+		readlink -f "$@"
+		return
+	fi
+	
+	realpath -L "$@"
+}
+
+_realpath_L_s() {
+	if ! _compat_realpath_run -L . > /dev/null 2>&1
+	then
+		readlink -f "$@"
+		return
+	fi
+	
+	realpath -L -s "$@"
+}
+
+
 #Critical prerequsites.
 _getAbsolute_criticalDep() {
-	! type realpath > /dev/null 2>&1 && return 1
+	#! type realpath > /dev/null 2>&1 && return 1
 	! type readlink > /dev/null 2>&1 && return 1
 	! type dirname > /dev/null 2>&1 && return 1
 	
-	#Known issue on Mac. See https://github.com/mirage335/ubiquitous_bash/issues/1 .
-	! realpath -L . > /dev/null 2>&1 && return 1
+	#Known to succeed under BusyBox (OpenWRT), NetBSD, and common Linux variants. No known failure modes. Extra precaution.
+	! readlink -f . > /dev/null 2>&1 && return 1
 	
 	return 0
 }
@@ -138,17 +371,17 @@ _getScriptAbsoluteLocation() {
 	
 	local absoluteLocation
 	if [[ (-e $PWD\/$0) && ($0 != "") ]] && [[ "$0" != "/"* ]]
-			then
-	absoluteLocation="$PWD"\/"$0"
-	absoluteLocation=$(realpath -L -s "$absoluteLocation")
-			else
-	absoluteLocation=$(realpath -L "$0")
+	then
+		absoluteLocation="$PWD"\/"$0"
+		absoluteLocation=$(_realpath_L_s "$absoluteLocation")
+	else
+		absoluteLocation=$(_realpath_L "$0")
 	fi
-
+	
 	if [[ -h "$absoluteLocation" ]]
-			then
-	absoluteLocation=$(readlink -f "$absoluteLocation")
-	absoluteLocation=$(realpath -L "$absoluteLocation")
+	then
+		absoluteLocation=$(readlink -f "$absoluteLocation")
+		absoluteLocation=$(_realpath_L "$absoluteLocation")
 	fi
 	echo $absoluteLocation
 }
@@ -182,13 +415,13 @@ _getAbsoluteLocation() {
 	
 	local absoluteLocation
 	if [[ (-e $PWD\/$1) && ($1 != "") ]] && [[ "$1" != "/"* ]]
-			then
-	absoluteLocation="$PWD"\/"$1"
-	absoluteLocation=$(realpath -L -s "$absoluteLocation")
-			else
-	absoluteLocation=$(realpath -L "$1")
+	then
+		absoluteLocation="$PWD"\/"$1"
+		absoluteLocation=$(_realpath_L_s "$absoluteLocation")
+	else
+		absoluteLocation=$(_realpath_L "$1")
 	fi
-	echo $absoluteLocation
+	echo "$absoluteLocation"
 }
 alias getAbsoluteLocation=_getAbsoluteLocation
 
@@ -344,10 +577,10 @@ _safeRMR() {
 	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" | grep -i '\.git$' >/dev/null 2>&1 && return 1
 	
 	#Validate necessary tools were available for path building and checks.
-	_checkDep realpath
-	_checkDep readlink
-	_checkDep dirname
-	_checkDep basename
+	#! type realpath > /dev/null 2>&1 && return 1
+	! type readlink > /dev/null 2>&1 && return 1
+	! type dirname > /dev/null 2>&1 && return 1
+	! type basename > /dev/null 2>&1 && return 1
 	
 	if [[ -e "$1" ]]
 	then
@@ -424,10 +657,10 @@ _safePath() {
 	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" | grep -i '\.git$' >/dev/null 2>&1 && return 1
 	
 	#Validate necessary tools were available for path building and checks.
-	_checkDep realpath
-	_checkDep readlink
-	_checkDep dirname
-	_checkDep basename
+	#! type realpath > /dev/null 2>&1 && return 1
+	! type readlink > /dev/null 2>&1 && return 1
+	! type dirname > /dev/null 2>&1 && return 1
+	! type basename > /dev/null 2>&1 && return 1
 	
 	if [[ -e "$1" ]]
 	then
@@ -443,8 +676,8 @@ _safeBackup() {
 	! type _getAbsolute_criticalDep > /dev/null 2>&1 && return 1
 	! _getAbsolute_criticalDep && return 1
 	
-	[[ ! -e "$scriptAbsoluteLocation" ]] && exit 1
-	[[ ! -e "$scriptAbsoluteFolder" ]] && exit 1
+	[[ ! -e "$scriptAbsoluteLocation" ]] && return 1
+	[[ ! -e "$scriptAbsoluteFolder" ]] && return 1
 	
 	#Fail sooner, avoiding irrelevant error messages. Especially important to cases where an upstream process has already removed the "$safeTmp" directory of a downstream process which reaches "_stop" later.
 	! [[ -e "$1" ]] && return 1
@@ -487,8 +720,8 @@ _command_safeBackup() {
 	! type _command_getAbsolute_criticalDep > /dev/null 2>&1 && return 1
 	! _command_getAbsolute_criticalDep && return 1
 	
-	[[ ! -e "$commandScriptAbsoluteLocation" ]] && exit 1
-	[[ ! -e "$commandScriptAbsoluteFolder" ]] && exit 1
+	[[ ! -e "$commandScriptAbsoluteLocation" ]] && return 1
+	[[ ! -e "$commandScriptAbsoluteFolder" ]] && return 1
 	
 	#Fail sooner, avoiding irrelevant error messages. Especially important to cases where an upstream process has already removed the "$safeTmp" directory of a downstream process which reaches "_stop" later.
 	! [[ -e "$1" ]] && return 1
@@ -517,7 +750,7 @@ _command_safeBackup() {
 	[[ "$1" == "$HOME" ]] && return 1
 	[[ "$1" == "$HOME/" ]] && return 1
 	
-	! type realpath > /dev/null 2>&1 && return 1
+	#! type realpath > /dev/null 2>&1 && return 1
 	! type readlink > /dev/null 2>&1 && return 1
 	! type dirname > /dev/null 2>&1 && return 1
 	! type basename > /dev/null 2>&1 && return 1
@@ -573,6 +806,22 @@ _uid() {
 	cat /dev/urandom 2> /dev/null | base64 2> /dev/null | tr -dc 'a-zA-Z0-9' 2> /dev/null | head -c "$uidLength" 2> /dev/null
 }
 
+_compat_stat_c_run() {
+	local functionOutput
+	
+	functionOutput=$(stat -c "$@" 2> /dev/null)
+	[[ "$?" == "0" ]] && echo "$functionOutput" && return 0
+	
+	#BSD
+	if stat --help 2>&1 | grep '\-f ' > /dev/null 2>&1
+	then
+		functionOutput=$(stat -f "$@" 2> /dev/null)
+		[[ "$?" == "0" ]] && echo "$functionOutput" && return 0
+	fi
+	
+	return 1
+}
+
 _permissions_directory_checkForPath() {
 	local parameterAbsoluteLocation
 	parameterAbsoluteLocation=$(_getAbsoluteLocation "$1")
@@ -581,7 +830,7 @@ _permissions_directory_checkForPath() {
 	
 	[[ "$parameterAbsoluteLocation" == "$PWD" ]] && ! [[ "$parameterAbsoluteLocation" == "$checkScriptAbsoluteFolder" ]] && return 1
 	
-	local permissions_readout=$(stat -c "%a" "$1")
+	local permissions_readout=$(_compat_stat_c_run "%a" "$1")
 	
 	local permissions_user
 	local permissions_group
@@ -601,8 +850,8 @@ _permissions_directory_checkForPath() {
 	local permissions_uid
 	local permissions_gid
 	
-	permissions_uid=$(stat -c "%u" "$1")
-	permissions_gid=$(stat -c "%g" "$1")
+	permissions_uid=$(_compat_stat_c_run "%u" "$1")
+	permissions_gid=$(_compat_stat_c_run "%g" "$1")
 	
 	#Normally these variables are available through ubiqutious bash, but this permissions check may be needed earlier in that global variables setting process.
 	local permissions_host_uid
@@ -660,6 +909,28 @@ _instance_internal() {
 	! [[ -e "$2" ]] && return 1
 	! [[ -d "$2" ]] && return 1
 	rsync -q -ax --exclude "/.cache" --exclude "/.git" "$@"
+}
+
+#echo -n
+_safeEcho() {
+	printf '%s' "$1"
+	shift
+	
+	[[ "$@" == "" ]] && return 0
+	
+	local currentArg
+	for currentArg in "$@"
+	do
+		printf '%s' " "
+		printf '%s' "$currentArg"
+	done
+	return 0
+}
+
+#echo
+_safeEcho_newline() {
+	_safeEcho "$@"
+	printf '\n'
 }
 
 #Universal debugging filesystem.
@@ -909,6 +1180,13 @@ _messageProcess() {
 	return 0
 }
 
+_mustcarry() {
+	grep "$1" "$2" > /dev/null 2>&1 && return 0
+	
+	echo "$1" >> "$2"
+	return
+}
+
 #"$1" == file path
 _includeFile() {
 	
@@ -1041,81 +1319,6 @@ _relink_relative() {
 #Copies files only if source/destination do match. Keeps files in a completely written state as often as possible.
 _cpDiff() {
 	! diff "$1" "$2" > /dev/null 2>&1 && cp "$1" "$2"
-}
-
-_wait_umount() {
-	sudo -n umount "$1"
-	mountpoint "$1" > /dev/null 2>&1 || return 0
-	sleep 0.1
-	
-	sudo -n umount "$1"
-	mountpoint "$1" > /dev/null 2>&1 || return 0
-	sleep 0.3
-	
-	[[ "$EMERGENCYSHUTDOWN" == "true" ]] && return 1
-	
-	sudo -n umount "$1"
-	mountpoint "$1" > /dev/null 2>&1 || return 0
-	sleep 1
-	
-	sudo -n umount "$1"
-	mountpoint "$1" > /dev/null 2>&1 || return 0
-	sleep 3
-	
-	sudo -n umount "$1"
-	mountpoint "$1" > /dev/null 2>&1 || return 0
-	sleep 9
-	
-	return 1
-} 
-
-_testMountChecks() {
-	_getDep mountpoint
-}
-
-#"$1" == test directory
-#"$2" == flag file
-_flagMount() {
-	# TODO: Possible stability/portability improvements.
-	#https://unix.stackexchange.com/questions/248472/finding-mount-points-with-the-find-command
-	
-	mountpoint "$1" >/dev/null 2>&1 && echo -n true > "$2"
-}
-
-#Searches directory for mounted filesystems.
-# DANGER Do not drop requirement for sudo. As this function represents a final fail-safe, filesystem permissions cannot be allowed to interfere.
-#"$1" == test directory
-_checkForMounts() {
-	_mustGetSudo || return 0
-	
-	_start
-	
-	#If test directory itself is a directory, further testing is not necessary.
-	sudo -n mountpoint "$1" > /dev/null 2>&1 && _stop 0
-	
-	local mountCheckFile="$safeTmp"/mc-$(_uid)
-	
-	echo -n false > "$mountCheckFile"
-	
-	#Sanity check, file exists.
-	! [[ -e "$mountCheckFile" ]] && _stop 0
-	
-	# TODO: Possible stability/portability improvements.
-	#https://unix.stackexchange.com/questions/248472/finding-mount-points-with-the-find-command
-	
-	find "$1" -type d -exec sudo -n mountpoint {} 2>/dev/null \; | grep 'is a mountpoint' >/dev/null 2>&1 && echo -n true > "$mountCheckFile"
-	
-	#find "$1" -type d -exec "$scriptAbsoluteLocation" {} "$mountCheckFile" \;
-	
-	local includesMount
-	includesMount=$(cat "$mountCheckFile")
-	
-	#Thorough sanity checking.
-	[[ "$includesMount" != "false" ]] && _stop 0
-	[[ "$includesMount" == "true" ]] && _stop 0
-	[[ "$includesMount" == "false" ]] && _stop 1
-	
-	_stop 0
 }
 
 #Waits for the process PID specified by first parameter to end. Useful in conjunction with $! to provide process control and/or PID files. Unlike wait command, does not require PID to be a child of the current shell.
@@ -1361,10 +1564,17 @@ _validatePort() {
 }
 
 _testFindPort() {
-	_getDep ss
+	! _wantGetDep ss
+	! _wantGetDep sockstat
 	
-	local machineLowerPort=$(cat /proc/sys/net/ipv4/ip_local_port_range | cut -f1)
-	local machineUpperPort=$(cat /proc/sys/net/ipv4/ip_local_port_range | cut -f2)
+	! type ss > /dev/null 2>&1 && ! type sockstat > /dev/null 2>&1 && echo "missing socket detection" && _stop 1
+	
+	local machineLowerPort=$(cat /proc/sys/net/ipv4/ip_local_port_range 2> /dev/null | cut -f1)
+	local machineUpperPort=$(cat /proc/sys/net/ipv4/ip_local_port_range 2> /dev/null | cut -f2)
+	
+	[[ "$machineLowerPort" == "" ]] && echo "warn: autodetect: lower_port"
+	[[ "$machineUpperPort" == "" ]] && echo "warn: autodetect: upper_port"
+	[[ "$machineLowerPort" == "" ]] || [[ "$machineUpperPort" == "" ]] && return 0
 	
 	[[ "$machineLowerPort" -lt "1024" ]] && echo "invalid lower_port" && _stop 1
 	[[ "$machineLowerPort" -lt "32768" ]] && echo "warn: low lower_port"
@@ -1377,6 +1587,55 @@ _testFindPort() {
 	local testFoundPort
 	testFoundPort=$(_findPort)
 	! _validatePort "$testFoundPort" && echo "invalid port discovery" && _stop 1
+}
+
+#True if port open (in use).
+_checkPort_local() {
+	[[ "$1" == "" ]] && return 1
+	
+	if type ss > /dev/null 2>&1
+	then
+		ss -lpn | grep ':'"$1"' ' > /dev/null 2>&1
+		return $?
+	fi
+	
+	if type sockstat > /dev/null 2>&1
+	then
+		sockstat -46ln | grep '\.'"$1"' ' > /dev/null 2>&1
+		return $?
+	fi
+	
+	return 1
+}
+
+#Waits a reasonable time interval for port to be open (in use).
+#"$1" == port
+_waitPort_local() {
+	local checksDone
+	checksDone=0
+	while ! _checkPort_local "$1" && [[ "$checksDone" -lt 72 ]]
+	do
+		let checksDone+=1
+		sleep 0.1
+	done
+	
+	local checksDone
+	checksDone=0
+	while ! _checkPort_local "$1" && [[ "$checksDone" -lt 72 ]]
+	do
+		let checksDone+=1
+		sleep 0.3
+	done
+	
+	local checksDone
+	checksDone=0
+	while ! _checkPort_local "$1" && [[ "$checksDone" -lt 72 ]]
+	do
+		let checksDone+=1
+		sleep 1
+	done
+	
+	return 0
 }
 
 
@@ -1412,10 +1671,10 @@ _findPort() {
 	while true
 	do
 		for (( currentPort = lower_port ; currentPort <= upper_port ; currentPort++ )); do
-			if ! ss -lpn | grep ":$currentPort " > /dev/null 2>&1
+			if ! _checkPort_local "$currentPort"
 			then
 				sleep 0.1
-				if ! ss -lpn | grep ":$currentPort " > /dev/null 2>&1
+				if ! _checkPort_local "$currentPort"
 				then
 					break 2
 				fi
@@ -1432,7 +1691,7 @@ _findPort() {
 		
 	fi
 	
-	echo $currentPort
+	echo "$currentPort"
 	
 	_validatePort "$currentPort"
 }
@@ -1636,8 +1895,10 @@ _getUUID() {
 alias getUUID=_getUUID
 
 #####Global variables.
-#Fixed unique identifier for ubiquitious bash created global resources, such as bootdisc images to be automaticaly mounted by guests. Should NOT be changed.
-export ubiquitiousBashID="uk4uPhB663kVcygT0q"
+#Fixed unique identifier for ubiquitious bash created global resources, such as bootdisc images to be automaticaly mounted by guests. Should NEVER be changed.
+export ubiquitiousBashIDnano=uk4u
+export ubiquitiousBashIDshort="$ubiquitiousBashIDnano"PhB6
+export ubiquitiousBashID="$ubiquitiousBashIDshort"63kVcygT0q
 
 ##Parameters
 #"--shell", ""
@@ -1670,7 +1931,8 @@ then
 	export sessionid=$(_uid)
 	_messagePlain_probe_expr 'default: scriptAbsoluteLocation= '"$scriptAbsoluteLocation"'\n ''default: scriptAbsoluteFolder= '"$scriptAbsoluteFolder"'\n ''default: sessionid= '"$sessionid" | _user_log-ub
 else	#FAIL, implies [[ "$ub_import" == "true" ]]
-	_messagePlain_bad 'import: fall: fail' | _user_log-ub && return 1
+	_messagePlain_bad 'import: fall: fail' | _user_log-ub
+	return 1 >/dev/null 2>&1
 	exit 1
 fi
 [[ "$importScriptLocation" != "" ]] && export importScriptLocation=
@@ -1688,10 +1950,13 @@ export initPWD="$PWD"
 intInitPWD="$PWD"
 
 #Temporary directories.
-export safeTmp="$scriptAbsoluteFolder"/w_"$sessionid"
-export scopeTmp="$scriptAbsoluteFolder"/s_"$sessionid"
+export safeTmp="$scriptAbsoluteFolder""$tmpPrefix"/w_"$sessionid"
+export scopeTmp="$scriptAbsoluteFolder""$tmpPrefix"/s_"$sessionid"
+export queryTmp="$scriptAbsoluteFolder""$tmpPrefix"/q_"$sessionid"
 export logTmp="$safeTmp"/log
-export shortTmp=/tmp/w_"$sessionid"	#Solely for misbehaved applications called upon.
+#Solely for misbehaved applications called upon.
+export shortTmp=/tmp/w_"$sessionid"
+
 export scriptBin="$scriptAbsoluteFolder"/_bin
 export scriptBundle="$scriptAbsoluteFolder"/_bundle
 export scriptLib="$scriptAbsoluteFolder"/_lib
@@ -1720,18 +1985,31 @@ export scriptTokens="$scriptLocal"/.tokens
 
 #Reboot Detection Token Storage
 # WARNING WIP. Not tested on all platforms. Requires a directory to be tmp/ram fs mounted. Worst case result is to preserve tokens across reboots.
-export bootTmp="$scriptLocal"			#Fail-Safe
-[[ -d /tmp ]] && export bootTmp=/tmp		#Typical BSD
-[[ -d /dev/shm ]] && export bootTmp=/dev/shm	#Typical Linux
+#Fail-Safe
+export bootTmp="$scriptLocal"
+#Typical BSD
+[[ -d /tmp ]] && export bootTmp='/tmp'
+#Typical Linux
+[[ -d /dev/shm ]] && export bootTmp='/dev/shm'
 
 #Specialized temporary directories.
+
+# WARNING: Only one user per (virtual) machine. Requires _prepare_abstract . Not default.
+# DANGER: Mandatory strict directory 8.3 compliance for this variable! Long subdirectory/filenames permitted thereafter.
+# DANGER: Permitting multi-user access to this directory may cause unexpected behavior, including inconsitent file ownership.
+#Consistent absolute path abstraction.
+export abstractfs_root=/tmp/"$ubiquitiousBashIDnano"
+( [[ "$bootTmp" == '/dev/shm' ]] || [[ "$bootTmp" == '/tmp' ]] ) && export abstractfs_root="$bootTmp"/"$ubiquitiousBashIDnano"
+export abstractfs_lock=/"$bootTmp"/"$ubiquitiousBashID"/afslock
+
 # Unusually, safeTmpSSH must not be interpreted by client, and therefore is single quoted.
 # TODO Test safeTmpSSH variants including spaces in path.
 export safeTmpSSH='~/.sshtmp/.s_'"$sessionid"
 
 #Process control.
 export pidFile="$safeTmp"/.pid
-export uPID="cwrxuk6wqzbzV6p8kPS8J4APYGX"	#Invalid do-not-match default.
+#Invalid do-not-match default.
+export uPID="cwrxuk6wqzbzV6p8kPS8J4APYGX"
 
 export daemonPidFile="$scriptLocal"/.bgpid
 
@@ -1752,7 +2030,8 @@ export AUTOSSH_GATETIME=15
 
 #Monolithic shared files.
 export lock_pathlock="$scriptLocal"/l_path
-export lock_quicktmp="$scriptLocal"/l_qt	#Used to make locking operations atomic as possible.
+#Used to make locking operations atomic as possible.
+export lock_quicktmp="$scriptLocal"/l_qt
 export lock_emergency="$scriptLocal"/l_em
 export lock_open="$scriptLocal"/l_o
 export lock_opening="$scriptLocal"/l_opening
@@ -1817,6 +2096,9 @@ export globalBuildFS="$globalBuildDir"/fs
 export globalBuildTmp="$globalBuildDir"/tmp
 
 
+#Reset prefixes.
+export tmpPrefix=""
+
 _findUbiquitous() {
 	export ubiquitiousLibDir="$scriptAbsoluteFolder"
 	
@@ -1866,6 +2148,7 @@ _init_deps() {
 	export enUb_DosBox=""
 	export enUb_msw=""
 	export enUb_fakehome=""
+	export enUb_abstractfs=""
 	export enUb_buildBash=""
 	export enUb_buildBashUbiquitous=""
 	
@@ -1951,36 +2234,43 @@ _deps_virt() {
 }
 
 _deps_chroot() {
+	_deps_notLean
 	_deps_virt
 	export enUb_ChRoot="true"
 }
 
 _deps_qemu() {
+	_deps_notLean
 	_deps_virt
 	export enUb_QEMU="true"
 }
 
 _deps_vbox() {
+	_deps_notLean
 	_deps_virt
 	export enUb_vbox="true"
 }
 
 _deps_docker() {
+	_deps_notLean
 	_deps_virt
 	export enUb_docker="true"
 }
 
 _deps_wine() {
 	_deps_notLean
+	_deps_virt
 	export enUb_wine="true"
 }
 
 _deps_dosbox() {
 	_deps_notLean
+	_deps_virt
 	export enUb_DosBox="true"
 }
 
 _deps_msw() {
+	_deps_notLean
 	_deps_virt
 	_deps_qemu
 	_deps_vbox
@@ -1990,7 +2280,14 @@ _deps_msw() {
 
 _deps_fakehome() {
 	_deps_notLean
+	_deps_virt
 	export enUb_fakehome="true"
+}
+
+_deps_abstractfs() {
+	_deps_notLean
+	_deps_virt
+	export enUb_abstractfs="true"
 }
 
 _deps_command() {
@@ -2132,6 +2429,7 @@ _compile_bash_deps() {
 		_deps_dosbox
 		_deps_msw
 		_deps_fakehome
+		_deps_abstractfs
 		
 		_deps_git
 		_deps_bup
@@ -2173,6 +2471,7 @@ _compile_bash_deps() {
 		_deps_dosbox
 		_deps_msw
 		_deps_fakehome
+		_deps_abstractfs
 		
 		_deps_git
 		_deps_bup
@@ -2245,6 +2544,8 @@ _compile_bash_essential_utilities() {
 	
 	includeScriptList+=( "generic"/messaging.sh )
 	
+	includeScriptList+=( "generic"/config/mustcarry.sh )
+	
 	[[ "$enUb_buildBash" == "true" ]] && includeScriptList+=( "build/bash"/include_bash.sh )
 }
 
@@ -2262,9 +2563,9 @@ _compile_bash_utilities() {
 	
 	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/bindmountmanager.sh )
 	
-	includeScriptList+=( "generic/filesystem/mounts"/waitumount.sh )
+	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/waitumount.sh )
 	
-	includeScriptList+=( "generic/filesystem/mounts"/mountchecks.sh )
+	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/mountchecks.sh )
 	
 	includeScriptList+=( "generic/process"/waitforprocess.sh )
 	
@@ -2324,6 +2625,9 @@ _compile_bash_utilities_virtualization() {
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/osTranslation.sh )
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/localPathTranslation.sh )
 	
+	[[ "$enUb_abstractfs" == "true" ]] && includeScriptList+=( "virtualization/abstractfs"/abstractfs.sh )
+	[[ "$enUb_abstractfs" == "true" ]] && includeScriptList+=( "virtualization/abstractfs"/abstractfsvars.sh )
+	
 	[[ "$enUb_fakehome" == "true" ]] && includeScriptList+=( "virtualization/fakehome"/fakehomemake.sh )
 	[[ "$enUb_fakehome" == "true" ]] && includeScriptList+=( "virtualization/fakehome"/fakehome.sh )
 	[[ "$enUb_fakehome" == "true" ]] && includeScriptList+=( "virtualization/fakehome"/fakehomeuser.sh )
@@ -2381,9 +2685,15 @@ _compile_bash_shortcuts() {
 	
 	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devemacs.sh )
 	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devatom.sh )
+	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_abstractfs" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/deveclipse.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope.sh )
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope_here.sh )
+	includeScriptList+=( "shortcuts/dev/query"/devquery.sh )
+	
+	includeScriptList+=( "shortcuts/dev/scope"/devscope.sh )
+	includeScriptList+=( "shortcuts/dev/scope"/devscope_here.sh )
+	
+	# WARNING: Some apps may have specific dependencies (eg. fakeHome, abstractfs, eclipse, atom).
+	includeScriptList+=( "shortcuts/dev/scope"/devscope_app.sh )
 	
 	[[ "$enUb_git" == "true" ]] && includeScriptList+=( "shortcuts/git"/git.sh )
 	[[ "$enUb_git" == "true" ]] && includeScriptList+=( "shortcuts/git"/gitBare.sh )
@@ -2464,6 +2774,8 @@ _compile_bash_vars_basic() {
 _compile_bash_vars_global() {
 	export includeScriptList
 	
+	#Optional, rarely used, intended for overload.
+	includeScriptList+=( "structure"/prefixvars.sh )
 	
 	#####Global variables.
 	includeScriptList+=( "structure"/globalvars.sh )
@@ -2522,6 +2834,7 @@ _compile_bash_environment() {
 	includeScriptList+=( "structure"/localfs.sh )
 	
 	includeScriptList+=( "structure"/localenv.sh )
+	includeScriptList+=( "structure"/localenv_prog.sh )
 }
 
 _compile_bash_installation() {
@@ -2944,6 +3257,10 @@ _false() {
 }
 _echo() {
 	echo "$@"
+}
+
+_diag() {
+	echo "$sessionid"
 }
 
 #Stop if script is imported, parameter not specified, and command not given.
