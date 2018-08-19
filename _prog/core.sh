@@ -30,7 +30,18 @@ _firefox_command() {
 	local firefoxVersion
 	if firefoxVersion=$(firefox --version | sed 's/Mozilla\ Firefox\ //g' | cut -d\. -f1)
 	#if which 'firefox'
-	#if _wantDep 'firefox'
+	#if _wantDep 'firefox'efox/active-update.xml
+        modified:   _local/setups/firefox/firefox/application.ini
+        modified:   _local/setups/firefox/firefox/browser/blocklist.xml
+        deleted:    _local/setups/firefox/firefox/browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/activity-stream@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/aushelper@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/firefox@getpocket.com.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/followonsearch@mozilla.com.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/formautofill@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/onboarding@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/screenshots@mozilla.org.xpi
+        modified:   _local/setups/firefox/firefox/browser/features/webcompat@mozilla.
 	#if false
 	then
 		if [[ "$firefoxVersion" -ge "59" ]]
@@ -206,6 +217,7 @@ _webClient() {
 _refresh_anchors() {
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_webClient
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_editHome
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_editHome_multitasking
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_v_firefox
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_esr

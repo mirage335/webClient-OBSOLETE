@@ -1,6 +1,6 @@
-PATCH DIRECTORY /home/commonadmin/core/lab/webClient/_local/setups/firefox/firefox/updates/0
-INSTALLATION DIRECTORY /home/commonadmin/core/lab/webClient/_local/setups/firefox/firefox
-WORKING DIRECTORY /home/commonadmin/core/lab/webClient/_local/setups/firefox/firefox
+PATCH DIRECTORY /home/user/project/_local/setups/firefox/firefox/updates/0
+INSTALLATION DIRECTORY /home/user/project/_local/setups/firefox/firefox
+WORKING DIRECTORY /home/user/project/_local/setups/firefox/firefox
 UPDATE TYPE partial
 PREPARE PATCH updater
 PREPARE ADD removed-files
@@ -18,7 +18,6 @@ PREPARE PATCH libsoftokn3.so
 PREPARE ADD libsoftokn3.chk
 PREPARE PATCH libsmime3.so
 PREPARE PATCH libplds4.so
-PREPARE PATCH libplc4.so
 PREPARE PATCH libnssutil3.so
 PREPARE PATCH libnssdbm3.so
 PREPARE ADD libnssdbm3.chk
@@ -33,7 +32,6 @@ PREPARE PATCH libmozavcodec.so
 PREPARE PATCH liblgpllibs.so
 PREPARE PATCH libfreeblpriv3.so
 PREPARE ADD libfreeblpriv3.chk
-PREPARE ADD icons/updater.png
 PREPARE PATCH gtk2/libmozgtk.so
 PREPARE PATCH gmp-clearkey/0.1/libclearkey.so.sig
 PREPARE PATCH gmp-clearkey/0.1/libclearkey.so
@@ -42,7 +40,6 @@ PREPARE PATCH firefox-bin.sig
 PREPARE PATCH firefox-bin
 PREPARE PATCH firefox
 PREPARE PATCH dictionaries/en-US.dic
-PREPARE PATCH dependentlibs.list
 PREPARE PATCH crashreporter
 PREPARE ADD chrome.manifest
 PREPARE PATCH browser/omni.ja
@@ -54,14 +51,13 @@ PREPARE PATCH browser/features/followonsearch@mozilla.com.xpi
 PREPARE PATCH browser/features/firefox@getpocket.com.xpi
 PREPARE PATCH browser/features/aushelper@mozilla.org.xpi
 PREPARE PATCH browser/features/activity-stream@mozilla.org.xpi
-PREPARE PATCH browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
-PREPARE ADD browser/chrome/icons/default/default64.png
-PREPARE ADD browser/chrome/icons/default/default32.png
-PREPARE ADD browser/chrome/icons/default/default128.png
 PREPARE PATCH browser/blocklist.xml
 PREPARE PATCH application.ini
-PREPARE REMOVEFILE icudt60l.dat
-PREPARE REMOVEFILE browser/features/shield-recipe-client@mozilla.org.xpi
+PREPARE ADD fonts/TwemojiMozilla.ttf
+PREPARE ADD browser/features/webcompat-reporter@mozilla.org.xpi
+PREPARE REMOVEFILE fonts/EmojiOneMozilla.ttf
+PREPARE REMOVEFILE browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
+PREPARE REMOVEDIR browser/extensions/
 EXECUTE PATCH updater
 EXECUTE ADD removed-files
 EXECUTE ADD precomplete
@@ -78,7 +74,6 @@ EXECUTE PATCH libsoftokn3.so
 EXECUTE ADD libsoftokn3.chk
 EXECUTE PATCH libsmime3.so
 EXECUTE PATCH libplds4.so
-EXECUTE PATCH libplc4.so
 EXECUTE PATCH libnssutil3.so
 EXECUTE PATCH libnssdbm3.so
 EXECUTE ADD libnssdbm3.chk
@@ -93,7 +88,6 @@ EXECUTE PATCH libmozavcodec.so
 EXECUTE PATCH liblgpllibs.so
 EXECUTE PATCH libfreeblpriv3.so
 EXECUTE ADD libfreeblpriv3.chk
-EXECUTE ADD icons/updater.png
 EXECUTE PATCH gtk2/libmozgtk.so
 EXECUTE PATCH gmp-clearkey/0.1/libclearkey.so.sig
 EXECUTE PATCH gmp-clearkey/0.1/libclearkey.so
@@ -102,7 +96,6 @@ EXECUTE PATCH firefox-bin.sig
 EXECUTE PATCH firefox-bin
 EXECUTE PATCH firefox
 EXECUTE PATCH dictionaries/en-US.dic
-EXECUTE PATCH dependentlibs.list
 EXECUTE PATCH crashreporter
 EXECUTE ADD chrome.manifest
 EXECUTE PATCH browser/omni.ja
@@ -114,14 +107,13 @@ EXECUTE PATCH browser/features/followonsearch@mozilla.com.xpi
 EXECUTE PATCH browser/features/firefox@getpocket.com.xpi
 EXECUTE PATCH browser/features/aushelper@mozilla.org.xpi
 EXECUTE PATCH browser/features/activity-stream@mozilla.org.xpi
-EXECUTE PATCH browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
-EXECUTE ADD browser/chrome/icons/default/default64.png
-EXECUTE ADD browser/chrome/icons/default/default32.png
-EXECUTE ADD browser/chrome/icons/default/default128.png
 EXECUTE PATCH browser/blocklist.xml
 EXECUTE PATCH application.ini
-EXECUTE REMOVEFILE icudt60l.dat
-EXECUTE REMOVEFILE browser/features/shield-recipe-client@mozilla.org.xpi
+EXECUTE ADD fonts/TwemojiMozilla.ttf
+EXECUTE ADD browser/features/webcompat-reporter@mozilla.org.xpi
+EXECUTE REMOVEFILE fonts/EmojiOneMozilla.ttf
+EXECUTE REMOVEFILE browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
+EXECUTE REMOVEDIR browser/extensions/
 FINISH PATCH updater
 FINISH ADD removed-files
 FINISH ADD precomplete
@@ -138,7 +130,6 @@ FINISH PATCH libsoftokn3.so
 FINISH ADD libsoftokn3.chk
 FINISH PATCH libsmime3.so
 FINISH PATCH libplds4.so
-FINISH PATCH libplc4.so
 FINISH PATCH libnssutil3.so
 FINISH PATCH libnssdbm3.so
 FINISH ADD libnssdbm3.chk
@@ -153,7 +144,6 @@ FINISH PATCH libmozavcodec.so
 FINISH PATCH liblgpllibs.so
 FINISH PATCH libfreeblpriv3.so
 FINISH ADD libfreeblpriv3.chk
-FINISH ADD icons/updater.png
 FINISH PATCH gtk2/libmozgtk.so
 FINISH PATCH gmp-clearkey/0.1/libclearkey.so.sig
 FINISH PATCH gmp-clearkey/0.1/libclearkey.so
@@ -162,7 +152,6 @@ FINISH PATCH firefox-bin.sig
 FINISH PATCH firefox-bin
 FINISH PATCH firefox
 FINISH PATCH dictionaries/en-US.dic
-FINISH PATCH dependentlibs.list
 FINISH PATCH crashreporter
 FINISH ADD chrome.manifest
 FINISH PATCH browser/omni.ja
@@ -174,13 +163,12 @@ FINISH PATCH browser/features/followonsearch@mozilla.com.xpi
 FINISH PATCH browser/features/firefox@getpocket.com.xpi
 FINISH PATCH browser/features/aushelper@mozilla.org.xpi
 FINISH PATCH browser/features/activity-stream@mozilla.org.xpi
-FINISH PATCH browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
-FINISH ADD browser/chrome/icons/default/default64.png
-FINISH ADD browser/chrome/icons/default/default32.png
-FINISH ADD browser/chrome/icons/default/default128.png
 FINISH PATCH browser/blocklist.xml
 FINISH PATCH application.ini
-FINISH REMOVEFILE icudt60l.dat
-FINISH REMOVEFILE browser/features/shield-recipe-client@mozilla.org.xpi
+FINISH ADD fonts/TwemojiMozilla.ttf
+FINISH ADD browser/features/webcompat-reporter@mozilla.org.xpi
+FINISH REMOVEFILE fonts/EmojiOneMozilla.ttf
+FINISH REMOVEFILE browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
+FINISH REMOVEDIR browser/extensions/
 succeeded
 calling QuitProgressUI
