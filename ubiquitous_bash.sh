@@ -43,6 +43,22 @@ _messagePlain_probe_expr() {
 	return 0
 }
 
+#Blue. Diagnostic instrumentation.
+_messagePlain_probe_var() {
+	echo -e -n '\E[0;34m '
+	
+	echo -n "$1"'= '
+	
+	eval echo -e -n \$"$1"
+	
+	echo -e -n ' \E[0m'
+	echo
+	return 0
+}
+_messageVar() {
+	_messagePlain_probe_var "$@"
+}
+
 #Green. Working as expected.
 _messagePlain_good() {
 	echo -e -n '\E[0;32m '
@@ -123,7 +139,91 @@ fi
 
 #Override.
 
+# WARNING: Only partially compatible.
+if ! type md5sum > /dev/null 2>&1 && type md5 > /dev/null 2>&1
+then
+	md5sum() {
+		md5 "$@"
+	}
+fi
+
+# DANGER: No production use. Testing only.
+# WARNING: Only partially compatible.
+#if ! type md5 > /dev/null 2>&1 && type md5sum > /dev/null 2>&1
+#then
+#	md5() {
+#		md5sum "$@"
+#	}
+#fi
+
 #Override (Program).
+
+#Override, cygwin.
+
+# ATTENTION: User must launch "tmux" (no parameters) in a graphical Cygwin terminal.
+# Launches graphical application through "tmux new-window" if available.
+# https://superuser.com/questions/531787/starting-windows-gui-program-in-windows-through-cygwin-sshd-from-ssh-client
+_workaround_cygwin_tmux() {
+	if pgrep -u "$USER" ^tmux$ > /dev/null 2>&1
+	then
+		tmux new-window "$@"
+		return "$?"
+	fi
+	
+	"$@"
+	return "$?"
+}
+
+if ! type nmap > /dev/null 2>&1 && type '/cygdrive/c/Program Files/Nmap/nmap.exe' > /dev/null 2>&1
+then
+	nmap() {
+		'/cygdrive/c/Program Files/Nmap/nmap.exe' "$@"
+	}
+fi
+
+if ! type nmap > /dev/null 2>&1 && type '/cygdrive/c/Program Files (x86)/Nmap/nmap.exe' > /dev/null 2>&1
+then
+	nmap() {
+		'/cygdrive/c/Program Files (x86)/Nmap/nmap.exe' "$@"
+	}
+fi
+
+# DANGER: Severely differing functionality. Intended only to stand in for "ip addr show" and similar.
+if ! type ip > /dev/null 2>&1 && type 'ipconfig' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1
+then
+	ip() {
+		if [[ "$1" == "addr" ]] && [[ "$2" == "show" ]]
+		then
+			ipconfig
+			return $?
+		fi
+		
+		return 1
+	}
+fi
+
+
+
+# WARNING: Native 'vncviewer.exe' is a GUI app, and cannot be launched directly from Cygwin SSH server.
+
+#if ! type vncviewer > /dev/null 2>&1 && type '/cygdrive/c/Program Files/TigerVNC/vncviewer.exe' > /dev/null 2>&1
+
+if type '/cygdrive/c/Program Files/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1
+then
+	export override_cygwin_vncviewer='true'
+	vncviewer() {
+		_workaround_cygwin_tmux '/cygdrive/c/Program Files/TigerVNC/vncviewer.exe' "$@"
+	}
+fi
+
+if type '/cygdrive/c/Program Files (x86)/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1
+then
+	export override_cygwin_vncviewer='true'
+	vncviewer() {
+		_workaround_cygwin_tmux '/cygdrive/c/Program Files (x86)/TigerVNC/vncviewer.exe' "$@"
+	}
+fi
+
 
 #####Utilities
 
@@ -294,6 +394,38 @@ _test_realpath_L() {
 
 _test_realpath() {
 	_test_realpath_L_s "$@"
+}
+
+_test_readlink_f_sequence() {
+	_start
+	
+	echo > "$safeTmp"/realFile
+	ln -s "$safeTmp"/realFile "$safeTmp"/linkA
+	ln -s "$safeTmp"/linkA "$safeTmp"/linkB
+	
+	local currentReadlinkResult
+	currentReadlinkResult=$(readlink -f "$safeTmp"/linkB)
+	
+	local currentReadlinkResultBasename
+	currentReadlinkResultBasename=$(basename "$currentReadlinkResult")
+	
+	if [[ "$currentReadlinkResultBasename" != "realFile" ]]
+	then
+		#echo 'fail: readlink -f'
+		_stop 1
+	fi
+	
+	_stop 0
+}
+
+_test_readlink_f() {
+	if ! "$scriptAbsoluteLocation" _test_readlink_f_sequence
+	then
+		echo 'fail: readlink -f'
+		_stop 1
+	fi
+	
+	return 0
 }
 
 _compat_realpath() {
@@ -571,10 +703,13 @@ _safeRMR() {
 	#[[ "$1" == "/home/$USER"* ]] && safeToRM="true"
 	[[ "$1" == "/tmp/"* ]] && safeToRM="true"
 	
+	# WARNING: Allows removal of temporary folders created by current ubiquitous bash session only.
+	[[ "$sessionid" != "" ]] && [[ "$1" == *"$sessionid"* ]] && safeToRM="true"
+	
 	[[ "$safeToRM" == "false" ]] && return 1
 	
 	#Safeguards/
-	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" | grep -i '\.git$' >/dev/null 2>&1 && return 1
+	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" 2>/dev/null | grep -i '\.git$' >/dev/null 2>&1 && return 1
 	
 	#Validate necessary tools were available for path building and checks.
 	#! type realpath > /dev/null 2>&1 && return 1
@@ -587,7 +722,7 @@ _safeRMR() {
 		#sleep 0
 		#echo "$1"
 		# WARNING Recommend against adding any non-portable flags.
-		rm -rf "$1"
+		rm -rf "$1" > /dev/null 2>&1
 	fi
 }
 
@@ -651,10 +786,13 @@ _safePath() {
 	#[[ "$1" == "/home/$USER"* ]] && safeToRM="true"
 	[[ "$1" == "/tmp/"* ]] && safeToRM="true"
 	
+	# WARNING: Allows removal of temporary folders created by current ubiquitous bash session only.
+	[[ "$sessionid" != "" ]] && [[ "$1" == *"$sessionid"* ]] && safeToRM="true"
+	
 	[[ "$safeToRM" == "false" ]] && return 1
 	
 	#Safeguards/
-	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" | grep -i '\.git$' >/dev/null 2>&1 && return 1
+	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" 2>/dev/null | grep -i '\.git$' >/dev/null 2>&1 && return 1
 	
 	#Validate necessary tools were available for path building and checks.
 	#! type realpath > /dev/null 2>&1 && return 1
@@ -760,6 +898,23 @@ _command_safeBackup() {
 
 
 
+_all_exist() {
+	local currentArg
+	for currentArg in "$@"
+	do
+		! [[ -e "$currentArg" ]] && return 1
+	done
+	
+	return 0
+}
+
+_wait_not_all_exist() {
+	while ! _all_exist "$@"
+	do
+		sleep 0.1
+	done
+}
+
 #http://stackoverflow.com/questions/687948/timeout-a-command-in-bash-without-unnecessary-delay
 _timeout() { ( set +b; sleep "$1" & "${@:2}" & wait -n; r=$?; kill -9 `jobs -p`; exit $r; ) } 
 
@@ -780,14 +935,58 @@ _terminate() {
 	rm "$processListFile"
 }
 
-_terminateAll() {
+_terminateMetaHostAll() {
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	
 	local processListFile
 	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
 	
 	local currentPID
 	
-	cat ./w_*/.pid >> "$processListFile" 2> /dev/null
+	cat ./.m_*/.pid >> "$processListFile" 2> /dev/null
+	
+	while read -r currentPID
+	do
+		pkill -P "$currentPID"
+		kill "$currentPID"
+	done < "$processListFile"
+	
+	rm "$processListFile"
+	
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 0.3
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 1
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 3
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 10
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 20
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 20
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 20
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	
+	return 1
+}
+
+_terminateAll() {
+	_terminateMetaHostAll
+	
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	local currentPID
+	
+	
 	cat ./.s_*/.pid >> "$processListFile" 2> /dev/null
+	
+	cat ./.e_*/.pid >> "$processListFile" 2> /dev/null
+	cat ./.m_*/.pid >> "$processListFile" 2> /dev/null
+	
+	cat ./w_*/.pid >> "$processListFile" 2> /dev/null
 	
 	while read -r currentPID
 	do
@@ -798,12 +997,23 @@ _terminateAll() {
 	rm "$processListFile"
 }
 
+_condition_lines_zero() {
+	local currentLineCount
+	currentLineCount=$(wc -l)
+	
+	[[ "$currentLineCount" == 0 ]] && return 0
+	return 1
+}
+
 #Generates random alphanumeric characters, default length 18.
 _uid() {
-	local uidLength
-	! [[ -z "$1" ]] && uidLength="$1" || uidLength=18
-	
-	cat /dev/urandom 2> /dev/null | base64 2> /dev/null | tr -dc 'a-zA-Z0-9' 2> /dev/null | head -c "$uidLength" 2> /dev/null
+	local curentLengthUID
+
+	currentLengthUID="18"
+	! [[ -z "$uidLengthPrefix" ]] && ! [[ "$uidLengthPrefix" -lt "18" ]] && currentLengthUID="$uidLengthPrefix"
+	! [[ -z "$1" ]] && currentLengthUID="$1"
+
+	cat /dev/urandom 2> /dev/null | base64 2> /dev/null | tr -dc 'a-zA-Z0-9' 2> /dev/null | head -c "$currentLengthUID" 2> /dev/null
 }
 
 _compat_stat_c_run() {
@@ -901,6 +1111,224 @@ _test_permissions_ubiquitous() {
 #"${globalArgs[@]}"
 _gather_params() {
 	export globalArgs=("${@}")
+}
+
+_self_critial() {
+	_priority_critical_pid "$$"
+}
+
+_self_interactive() {
+	_priority_interactive_pid "$$"
+}
+
+_self_background() {
+	_priority_background_pid "$$"
+}
+
+_self_idle() {
+	_priority_idle_pid "$$"
+}
+
+_self_app() {
+	_priority_app_pid "$$"
+}
+
+_self_zero() {
+	_priority_zero_pid "$$"
+}
+
+
+#Example.
+_priority_critical() {
+	_priority_dispatch "_priority_critical_pid"
+}
+
+_priority_critical_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 2 -p "$1"
+	! sudo -n renice -15 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_critical_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	_priority_critical_pid_root "$1" && return 0
+	
+	ionice -c 2 -n 4 -p "$1"
+	! renice 0 -p "$1" && return 1
+	
+	return 1
+}
+
+_priority_interactive_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 2 -p "$1"
+	! sudo -n renice -10 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_interactive_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	_priority_interactive_pid_root "$1" && return 0
+	
+	ionice -c 2 -n 4 -p "$1"
+	! renice 0 -p "$1" && return 1
+	
+	return 1
+}
+
+_priority_app_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 3 -p "$1"
+	! sudo -n renice -5 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_app_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	_priority_app_pid_root "$1" && return 0
+	
+	ionice -c 2 -n 4 -p "$1"
+	! renice 0 -p "$1" && return 1
+	
+	return 1
+}
+
+_priority_background_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 5 -p "$1"
+	! sudo -n renice +5 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_background_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	if ! type ionice > /dev/null 2>&1 || ! groups | grep -E 'wheel|sudo' > /dev/null 2>&1
+	then
+		renice +5 -p "$1"
+		return 0
+	fi
+	
+	_priority_background_pid_root "$1" && return 0
+	
+	ionice -c 2 -n 5 -p "$1"
+	
+	renice +5 -p "$1"
+}
+
+
+
+_priority_idle_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 3 -p "$1"
+	! sudo -n renice +15 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_idle_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	if ! type ionice > /dev/null 2>&1 || ! groups | grep -E 'wheel|sudo' > /dev/null 2>&1
+	then
+		renice +15 -p "$1"
+		return 0
+	fi
+	
+	_priority_idle_pid_root "$1" && return 0
+	
+	#https://linux.die.net/man/1/ionice
+	ionice -c 3 -p "$1"
+	
+	renice +15 -p "$1"
+}
+
+_priority_zero_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 4 -p "$1"
+	! sudo -n renice 0 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_zero_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	_priority_zero_pid_root "$1" && return 0
+	
+	#https://linux.die.net/man/1/ionice
+	ionice -c 2 -n 4 -p "$1"
+	
+	renice 0 -p "$1"
+}
+
+# WARNING: Untested.
+_priority_dispatch() {
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	echo "$1" >> "$processListFile"
+	pgrep -P "$1" 2>/dev/null >> "$processListFile"
+	
+	local currentPID
+	
+	while read -r currentPID
+	do
+		"$@" "$currentPID"
+	done < "$processListFile"
+	
+	rm "$processListFile"
+}
+
+# WARNING: Untested.
+_priority_enumerate_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	echo "$1"
+	pgrep -P "$1" 2>/dev/null
+}
+
+_priority_enumerate_pattern() {
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	echo -n >> "$processListFile"
+	
+	pgrep "$1" >> "$processListFile"
+	
+	
+	local parentListFile
+	parentListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	echo -n >> "$parentListFile"
+	
+	local currentPID
+	
+	while read -r currentPID
+	do
+		pgrep -P "$currentPID" 2>/dev/null > "$parentListFile"
+	done < "$processListFile"
+	
+	cat "$processListFile"
+	cat "$parentListFile"
+	
+	
+	rm "$processListFile"
+	rm "$parentListFile"
 }
 
 _instance_internal() {
@@ -1031,6 +1459,15 @@ _messageColors() {
 	return 0
 }
 
+#Purple. User must do something manually to proceed. NOT to be used for dependency installation requests - use probe, bad, and fail statements for that.
+_messagePlain_request() {
+	echo -e -n '\E[0;35m '
+	echo -n "$@"
+	echo -e -n ' \E[0m'
+	echo
+	return 0
+}
+
 #Cyan. Harmless status messages.
 #"generic/ubiquitousheader.sh"
 _messagePlain_nominal() {
@@ -1061,6 +1498,23 @@ _messagePlain_probe_expr() {
 	return 0
 }
 
+#Blue. Diagnostic instrumentation.
+#"generic/ubiquitousheader.sh"
+_messagePlain_probe_var() {
+	echo -e -n '\E[0;34m '
+	
+	echo -n "$1"'= '
+	
+	eval echo -e -n \$"$1"
+	
+	echo -e -n ' \E[0m'
+	echo
+	return 0
+}
+_messageVar() {
+	_messagePlain_probe_var "$@"
+}
+
 #Green. Working as expected.
 #"generic/ubiquitousheader.sh"
 _messagePlain_good() {
@@ -1088,6 +1542,25 @@ _messagePlain_bad() {
 	echo -e -n ' \E[0m'
 	echo
 	return 0
+}
+
+#Blue. Diagnostic instrumentation.
+#Prints "$@" and runs "$@".
+# WARNING: Use with care.
+_messagePlain_probe_cmd() {
+	echo -e -n '\E[0;34m '
+	
+	_safeEcho "$@"
+	
+	echo -e -n ' \E[0m'
+	echo
+	
+	"$@"
+	
+	return
+}
+_messageCMD() {
+	_messagePlain_probe_cmd "$@"
 }
 
 #Demarcate major steps.
@@ -1200,13 +1673,17 @@ _includeFile() {
 	return 1
 }
 
-#Provide only approximate, realative paths. These will be disassembled and treated as a search query following stricti preferences
+#Provide only approximate, realative paths. These will be disassembled and treated as a search query following strict preferences.
 #"generic/filesystem/absolutepaths.sh"
 _includeScript() {
+	_tryExec "_includeScript_prog" "$1" && return 0
 
 	local includeScriptFilename=$(basename "$1")
 	local includeScriptSubdirectory=$(dirname "$1")
 	
+	_includeFile "$configDir"/"$includeScriptSubdirectory"/"$includeScriptFilename" && return 0
+	
+	_includeFile "$configDir"/"$includeScriptFilename" && return 0
 	
 	_includeFile "$progDir"/"$includeScriptSubdirectory"/"$includeScriptFilename" && return 0
 	
@@ -1215,8 +1692,6 @@ _includeScript() {
 	_includeFile "$ubiquitiousLibDir"/"$includeScriptSubdirectory"/"$includeScriptFilename" && return 0
 	
 	_includeFile "$ubiquitiousLibDir"/"$includeScriptFilename" && return 0
-	
-	_includeFile "$configDir"/"$includeScriptFilename" && return 0
 	
 	#[[ "$configBaseDir" == "" ]] && configBaseDir="_config"
 	[[ "$configBaseDir" == "" ]] && configBaseDir=$(basename "$configDir")
@@ -1249,6 +1724,17 @@ _includeScripts() {
 	done
 }
 
+# WARNING: Untested.
+#_includeScript_prog() {
+#	false
+	
+	# WARNING: Not recommended. Create folders and submodules under "_prog" instead, as in "_prog/libName".
+	#_includeFile "$scriptLib"/libName/"$includeScriptSubdirectory"/"$includeScriptFilename" && return 0
+	#_includeFile "$scriptLib"/libName/"$includeScriptFilename" && return 0
+	
+	#return 1
+#}
+
 #Gets filename extension, specifically any last three characters in given string.
 #"$1" == filename
 _getExt() {
@@ -1258,7 +1744,7 @@ _getExt() {
 #Reports either the directory provided, or the directory of the file provided.
 _findDir() {
 	local dirIn=$(_getAbsoluteLocation "$1")
-	dirInLogical=$(realpath -L -s "$dirIn")
+	dirInLogical=$(_realpath_L_s "$dirIn")
 	
 	if [[ -d "$dirInLogical" ]]
 	then
@@ -1285,33 +1771,46 @@ _discoverResource() {
 }
 
 _rmlink() {
+	[[ "$1" == "/dev/null" ]] && return 1
+	
 	[[ -h "$1" ]] && rm -f "$1" && return 0
+	
 	! [[ -e "$1" ]] && return 0
+	
 	return 1
 }
 
 #Like "ln -sf", but will not proceed if target is not link and exists (ie. will not erase files).
-_relink_sequence() {
-
+_relink_procedure() {
 	#Do not update correct symlink.
 	local existingLinkTarget
 	existingLinkTarget=$(readlink "$2")
 	[[ "$existingLinkTarget" == "$1" ]] && return 0
 	
 	! [[ "$relinkRelativeUb" == "true" ]] && _rmlink "$2" && ln -s "$1" "$2" && return 0
-	[[ "$relinkRelativeUb" == "true" ]] && _rmlink "$2" && ln -s -r "$1" "$2" && return 0
+	
+	if [[ "$relinkRelativeUb" == "true" ]]
+	then
+		_rmlink "$2" && ln -s --relative "$1" "$2" && return 0
+	fi
 	
 	return 1
 }
 
 _relink() {
+	[[ "$2" == "/dev/null" ]] && return 1
 	[[ "$relinkRelativeUb" == "true" ]] && export relinkRelativeUb=""
-	_relink_sequence "$@"
+	_relink_procedure "$@"
 }
 
 _relink_relative() {
-	export relinkRelativeUb="true"
-	_relink_sequence "$@"
+	export relinkRelativeUb=""
+	
+	[[ "$relinkRelativeUb" != "true" ]] && ln --help 2>/dev/null | grep '\-\-relative' > /dev/null 2>&1 && export relinkRelativeUb="true"
+	[[ "$relinkRelativeUb" != "true" ]] && ln 2>&1 | grep '\-\-relative' > /dev/null 2>&1 && export relinkRelativeUb="true"
+	[[ "$relinkRelativeUb" != "true" ]] && man ln 2>/dev/null | grep '\-\-relative' > /dev/null 2>&1 && export relinkRelativeUb="true"
+	
+	_relink_procedure "$@"
 	export relinkRelativeUb=""
 	unset relinkRelativeUb
 }
@@ -1425,9 +1924,9 @@ _checkForMounts() {
 	# TODO: Possible stability/portability improvements.
 	#https://unix.stackexchange.com/questions/248472/finding-mount-points-with-the-find-command
 	
-	find "$1" -type d -exec sudo -n mountpoint {} 2>/dev/null \; | grep 'is a mountpoint' >/dev/null 2>&1 && echo -n true > "$mountCheckFile"
+	find "$1" -type d -exec sudo -n mountpoint '{}' 2>/dev/null \; | grep 'is a mountpoint' >/dev/null 2>&1 && echo -n true > "$mountCheckFile"
 	
-	#find "$1" -type d -exec "$scriptAbsoluteLocation" {} "$mountCheckFile" \;
+	#find "$1" -type d -exec "$scriptAbsoluteLocation" '{}' "$mountCheckFile" \;
 	
 	local includesMount
 	includesMount=$(cat "$mountCheckFile")
@@ -1439,6 +1938,88 @@ _checkForMounts() {
 	
 	_stop 0
 }
+
+_test_channel_fifo() {
+	_getDep mkfifo
+	
+	#if ! dd if=$("$scriptAbsoluteLocation" _channel_host_fifo cat /dev/zero) of=/dev/null bs=1M count=10 iflag=fullblock > /dev/null 2>&1
+	if ! dd if=$("$scriptAbsoluteLocation" _channel_host_fifo cat /dev/zero) of=/dev/null bs=10000000 count=10 > /dev/null 2>&1
+	then
+		echo 'fail: channel: fifo'
+		_stop 1
+	fi
+}
+
+_test_channel() {
+	_tryExec "_test_channel_fifo"
+}
+
+_set_channel() {
+	export channelTmp="$scriptAbsoluteFolder""$tmpPrefix"/.c_"$sessionid"
+}
+
+_prepare_channel() {
+	mkdir -p "$channelTmp"
+}
+
+_stop_channel_allow() {
+	export channelStop="true"
+}
+_stop_channel_prohibit() {
+	export channelStop="false"
+}
+
+_rm_instance_channel() {
+	[[ "$channelStop" != "true" ]] && return 0
+	export channelStop="false"
+	
+	if [[ "$channelTmp" != "" ]] && [[ "$channelTmp" == *"$sessionid"* ]] && [[ -e "$channelTmp" ]]
+	then
+		_safeRMR "$channelTmp"
+		[[ -e "$channelTmp" ]] && sleep 0.1 && _safeRMR "$channelTmp"
+		[[ -e "$channelTmp" ]] && sleep 0.3 && _safeRMR "$channelTmp"
+		[[ -e "$channelTmp" ]] && sleep 1 && _safeRMR "$channelTmp"
+		[[ -e "$channelTmp" ]] && sleep 3 && _safeRMR "$channelTmp"
+		[[ -e "$channelTmp" ]] && sleep 3 && _safeRMR "$channelTmp"
+		[[ -e "$channelTmp" ]] && sleep 3 && _safeRMR "$channelTmp"
+	fi
+}
+
+_channel_fifo_example() {
+	cat /dev/urandom | base64
+}
+
+_channel_fifo_sequence() {
+	_stop_channel_allow
+	
+	"$@" 2>/dev/null > "$commandFIFO"
+	
+	_rm_instance_channel
+}
+
+_channel_host_fifo_sequence() {
+	_stop_channel_prohibit
+	_set_channel
+	_prepare_channel
+	
+	export commandFIFO="$channelTmp"/cmdfifo
+	mkfifo "$commandFIFO"
+	
+	echo "$commandFIFO"
+	
+	
+	#nohup "$scriptAbsoluteLocation" --embed _channel_fifo_sequence "$@" >/dev/null 2>&1 &
+	"$scriptAbsoluteLocation" --embed _channel_fifo_sequence "$@" >/dev/null 2>&1 &
+	#disown -h $!
+	disown -a -h
+}
+
+# example: dd if=$(./ubiquitous_bash.sh _channel_host_fifo _channel_fifo_example) of=/dev/null
+# example: dd if=$(./ubiquitous_bash.sh _channel_host_fifo cat /dev/zero) of=/dev/null bs=1M count=10000 iflag=fullblock
+_channel_host_fifo() {
+	"$scriptAbsoluteLocation" _channel_host_fifo_sequence "$@"
+}
+
 
 #Waits for the process PID specified by first parameter to end. Useful in conjunction with $! to provide process control and/or PID files. Unlike wait command, does not require PID to be a child of the current shell.
 _pauseForProcess() {
@@ -1686,6 +2267,13 @@ _testFindPort() {
 	! _wantGetDep ss
 	! _wantGetDep sockstat
 	
+	# WARNING: Cygwin port range detection not yet implemented.
+	if uname -a | grep -i cygwin > /dev/null 2>&1
+	then
+		! type nmap > /dev/null 2>&1 && echo "missing socket detection" && _stop 1
+		return 0
+	fi
+	
 	! type ss > /dev/null 2>&1 && ! type sockstat > /dev/null 2>&1 && echo "missing socket detection" && _stop 1
 	
 	local machineLowerPort=$(cat /proc/sys/net/ipv4/ip_local_port_range 2> /dev/null | cut -f1)
@@ -1721,6 +2309,12 @@ _checkPort_local() {
 	if type sockstat > /dev/null 2>&1
 	then
 		sockstat -46ln | grep '\.'"$1"' ' > /dev/null 2>&1
+		return $?
+	fi
+	
+	if uname -a | grep -i cygwin > /dev/null 2>&1
+	then
+		nmap --host-timeout 0.1 -Pn localhost -p "$1" 2> /dev/null | grep open > /dev/null 2>&1
 		return $?
 	fi
 	
@@ -1819,16 +2413,154 @@ _test_waitport() {
 	_getDep nmap
 }
 
-#Checks hostname for open port.
-#"$1" == hostname
-#"$2" == port
-_checkPort() {
-	if nmap -Pn "$1" -p "$2" 2> /dev/null | grep open > /dev/null 2>&1
+_showPort_ipv6() {
+	nmap -6 --host-timeout "$netTimeout" -Pn "$1" -p "$2" 2> /dev/null
+}
+
+_showPort_ipv4() {
+	nmap --host-timeout "$netTimeout" -Pn "$1" -p "$2" 2> /dev/null
+}
+
+_checkPort_ipv6() {
+	if _showPort_ipv6 "$@" | grep open > /dev/null 2>&1
 	then
 		return 0
 	fi
 	return 1
 }
+
+#Checks hostname for open port.
+#"$1" == hostname
+#"$2" == port
+_checkPort_ipv4() {
+	if _showPort_ipv4 "$@" | grep open > /dev/null 2>&1
+	then
+		return 0
+	fi
+	return 1
+}
+
+_checkPort_sequence() {
+	_start
+	
+	local currentEchoStatus
+	currentEchoStatus=$(stty --file=/dev/tty -g 2>/dev/null)
+	
+	local currentExitStatus
+	
+	if ( [[ "$1" == 'localhost' ]] || [[ "$1" == '::1' ]] || [[ "$1" == '127.0.0.1' ]] )
+	then
+		_checkPort_ipv4 "localhost" "$2"
+		return "$?"
+	fi
+	
+	#Lack of coproc support implies old system, which implies IPv4 only.
+	#if ! type coproc >/dev/null 2>&1
+	#then
+	#	_checkPort_ipv4 "$1" "$2"
+	#	return "$?"
+	#fi
+	
+	( ( _showPort_ipv4 "$1" "$2" ) 2> /dev/null > "$safeTmp"/_showPort_ipv4 & )
+	
+	( ( _showPort_ipv6 "$1" "$2" ) 2> /dev/null > "$safeTmp"/_showPort_ipv6 & )
+	
+	
+	local currentTimer
+	currentTimer=1
+	while [[ "$currentTimer" -le "$netTimeout" ]]
+	do
+		grep -m1 'open' "$safeTmp"/_showPort_ipv4 > /dev/null 2>&1 && _stop
+		grep -m1 'open' "$safeTmp"/_showPort_ipv6 > /dev/null 2>&1 && _stop
+		
+		! [[ $(jobs | wc -c) -gt '0' ]] && ! grep -m1 'open' "$safeTmp"/_showPort_ipv4 && grep -m1 'open' "$safeTmp"/_showPort_ipv6 > /dev/null 2>&1 && _stop 1
+		
+		let currentTimer="$currentTimer"+1
+		sleep 1
+	done
+	
+	
+	_stop 1
+}
+
+# DANGER: Unstable, abandoned. Reference only.
+# WARNING: Limited support for older systems.
+#https://unix.stackexchange.com/questions/86270/how-do-you-use-the-command-coproc-in-various-shells
+#http://wiki.bash-hackers.org/syntax/keywords/coproc
+#http://mywiki.wooledge.org/BashFAQ/024
+#[[ $COPROC_PID ]] && kill $COPROC_PID
+#coproc { bash -c '(sleep 9 ; echo test) &' ; bash -c 'echo test' ;  } ; grep -m1 test <&${COPROC[0]}
+#coproc { echo test ; echo x ; } ; sleep 1 ; grep -m1 test <&${COPROC[0]}
+_checkPort_sequence_coproc() {
+	local currentEchoStatus
+	currentEchoStatus=$(stty --file=/dev/tty -g 2>/dev/null)
+	
+	local currentExitStatus
+	
+	if ( [[ "$1" == 'localhost' ]] || [[ "$1" == '::1' ]] || [[ "$1" == '127.0.0.1' ]] )
+	then
+		_checkPort_ipv4 "localhost" "$2"
+		return "$?"
+	fi
+	
+	#Lack of coproc support implies old system, which implies IPv4 only.
+	if ! type coproc >/dev/null 2>&1
+	then
+		_checkPort_ipv4 "$1" "$2"
+		return "$?"
+	fi
+	
+	#coproc { sleep 30 ; echo foo ; sleep 30 ; echo bar; } ; grep -m1 foo <&${COPROC[0]}
+	#[[ $COPROC_PID ]] && kill $COPROC_PID ; coproc { ((sleep 1 ; echo test) &) ; echo x ; sleep 3 ; } ; sleep 0.1 ; grep -m1 test <&${COPROC[0]}
+	
+	[[ "$COPROC_PID" ]] && kill "$COPROC_PID" > /dev/null 2>&1
+	coproc {
+		( ( _showPort_ipv4 "$1" "$2" ) & )
+		
+		#[sleep] Lessens unlikely occurrence of interleaved text within "open" keyword.
+		#IPv6 delayed instead of IPv4 due to likelihood of additional delay by IPv6 tunneling.
+		#sleep 0.1
+		
+		# TODO: Better characterize problems with sleep.
+		# Workaround - sleep may disable 'stty echo', which may be irreversable within SSH proxy command.
+		#_timeout 0.1 cat < /dev/zero > /dev/null
+		if ! ping -c 2 -i 0.1 localhost > /dev/null 2>&1
+		then
+			ping -c 2 -i 1 localhost > /dev/null 2>&1
+		fi
+		
+		#[sleep] Lessens unlikely occurrence of interleaved text within "open" keyword.
+		#IPv6 delayed instead of IPv4 due to likelihood of additional delay by IPv6 tunneling.
+		( ( _showPort_ipv6 "$1" "$2" ) & )
+
+		#sleep 2
+		ping -c 2 -i 2 localhost > /dev/null 2>&1
+	}
+	grep -m1 open <&"${COPROC[0]}" > /dev/null 2>&1
+	currentExitStatus="$?"
+	
+	stty --file=/dev/tty "$currentEchoStatus" 2> /dev/null
+	
+	return "$currentExitStatus"
+}
+
+#Checks hostname for open port.
+#"$1" == hostname
+#"$2" == port
+_checkPort() {
+	#local currentEchoStatus
+	#currentEchoStatus=$(stty --file=/dev/tty -g 2>/dev/null)
+	
+	#if bash -c \""$scriptAbsoluteLocation"\"\ _checkPort_sequence\ \""$1"\"\ \""$2"\" > /dev/null 2>&1
+	if "$scriptAbsoluteLocation" _checkPort_sequence "$1" "$2" > /dev/null 2>&1
+	then
+		#stty --file=/dev/tty "$currentEchoStatus" 2> /dev/null
+		return 0
+	fi
+	#stty --file=/dev/tty "$currentEchoStatus" 2> /dev/null
+	return 1
+}
+
 
 #Waits a reasonable time interval for port to be open.
 #"$1" == hostname
@@ -1885,17 +2617,25 @@ _testTor() {
 	fi
 }
 
+# ATTENTION: Respects "$LOCALLISTENPORT". May be repurposed for services other than SSH (ie. HTTPS).
 _torServer_SSH_writeCfg() {
-	mkdir -p "$scriptLocal"/tor/sshd/dd
+	_overrideReversePorts
 	
-	rm "$scriptLocal"/tor/sshd/dd/torrc > /dev/null 2>&1
+	local currentLocalSSHport
+	currentLocalSSHport="$LOCALLISTENPORT"
+	[[ "$currentLocalSSHport" == "" ]] && currentLocalSSHport="$LOCALSSHPORT"
+	[[ "$currentLocalSSHport" == "" ]] && currentLocalSSHport=22
 	
-	echo "RunAsDaemon 0" >> "$scriptLocal"/tor/sshd/dd/torrc
-	echo "DataDirectory "'"'"$scriptLocal"/tor/sshd/dd'"' >> "$scriptLocal"/tor/sshd/dd/torrc
-	echo  >> "$scriptLocal"/tor/sshd/dd/torrc
+	mkdir -p "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"
 	
-	echo "SocksPort 0" >> "$scriptLocal"/tor/sshd/dd/torrc
-	echo  >> "$scriptLocal"/tor/sshd/dd/torrc
+	rm "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}" > /dev/null 2>&1
+	
+	echo "RunAsDaemon 0" >> "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}"
+	echo "DataDirectory "'"'"$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"'"' >> "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}"
+	echo  >> "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}"
+	
+	echo "SocksPort 0" >> "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}"
+	echo  >> "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}"
 	
 	local currentReversePort
 	for currentReversePort in "${matchingReversePorts[@]}"
@@ -1904,11 +2644,11 @@ _torServer_SSH_writeCfg() {
 		mkdir -p "$scriptLocal"/tor/sshd/"$currentReversePort"
 		chmod 700 "$scriptLocal"/tor/sshd/"$currentReversePort"
 		
-		echo "HiddenServiceDir "'"'"$scriptLocal"/tor/sshd/"$currentReversePort"/'"' >> "$scriptLocal"/tor/sshd/dd/torrc
+		echo "HiddenServiceDir "'"'"$scriptLocal"/tor/sshd/"$currentReversePort"/'"' >> "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}"
 		
-		echo "HiddenServicePort ""$currentReversePort"" 127.0.0.1:""$LOCALSSHPORT" >> "$scriptLocal"/tor/sshd/dd/torrc
+		echo "HiddenServicePort ""$currentReversePort"" 127.0.0.1:""$currentLocalSSHport" >> "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}"
 		
-		echo  >> "$scriptLocal"/tor/sshd/dd/torrc
+		echo  >> "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}"
 		
 	done
 	
@@ -1949,23 +2689,52 @@ _show_torServer_SSH_hostnames() {
 
 #Typically used to create onion addresses for an entire network of machines.
 _torServer_SSH_all_launch() {
+	local currentReversePort
+	
 	_get_reversePorts '*'
 	
-	_torServer_SSH_writeCfg
+	for currentReversePort in "${matchingReversePorts[@]}"
+	do
+		export overrideMatchingReversePort="$currentReversePort"
+		_torServer_SSH_writeCfg
+		_timeout 45 tor -f "$scriptLocal"/tor/sshd/dd_"$overrideMatchingReversePort"/torrc_"$overrideMatchingReversePort"
+	done
 	
-	tor -f "$scriptLocal"/tor/sshd/dd/torrc
 	
+	if type _offset_reversePorts > /dev/null 2>&1
+	then
+		_get_reversePorts '*'
+		_offset_reversePorts
+		export matchingReversePorts=( "${matchingOffsetPorts[@]}" )
+		
+		for currentReversePort in "${matchingOffsetPorts[@]}"
+		do
+			export overrideMatchingReversePort="$currentReversePort"
+			_torServer_SSH_writeCfg
+			_timeout 45 tor -f "$scriptLocal"/tor/sshd/dd_"$overrideMatchingReversePort"/torrc_"$overrideMatchingReversePort"
+		done
+	fi
+	
+	_get_reversePorts '*'
 	_show_torServer_SSH_hostnames
 	
+	if type _offset_reversePorts > /dev/null 2>&1
+	then
+		_get_reversePorts '*'
+		_offset_reversePorts
+		export matchingReversePorts=( "${matchingOffsetPorts[@]}" )
+		_show_torServer_SSH_hostnames
+	fi
 }
 
+# WARNING: Accepts "matchingReversePorts". Must be set with current values by "_get_reversePorts" or similar!
 #Especially intended for IPv4 NAT punching.
 _torServer_SSH_launch() {
-	_get_reversePorts
+	_overrideReversePorts
 	
 	_torServer_SSH_writeCfg
 	
-	tor -f "$scriptLocal"/tor/sshd/dd/torrc
+	tor -f "$scriptLocal"/tor/sshd/dd_"${matchingReversePorts[0]}"/torrc_"${matchingReversePorts[0]}"
 	
 	_show_torServer_SSH_hostnames
 	
@@ -2035,14 +2804,17 @@ _proxyTor_direct() {
 	socat - SOCKS4A:localhost:"$proxyTargetHost":"$proxyTargetPort",socksport=9050
 }
 
+# WARNING: Does NOT honor "$netTimeout" !
 #Launches proxy if port at hostname is open.
 #"$1" == hostname
 #"$2" == port
 _proxyTor() {
 	if _checkTorPort "$1" "$2"
 	then
+		_proxyTor_direct "$1" "$2"
 		if _proxyTor_direct "$1" "$2"
 		then
+			# WARNING: Not to be relied upon. May not reach if terminated by signal.
 			_stop
 		fi
 	fi
@@ -2113,6 +2885,8 @@ _testProxySSH() {
 	#For both _package and _rsync .
 	! _wantDep rsync && echo 'warn: no rsync'
 	
+	! _wantDep scp && echo 'warn: no scp'
+	
 	! _wantDep sshfs && echo 'warn: sshfs not found'
 	
 	! _wantDep base64 && echo 'warn: no base64'
@@ -2125,8 +2899,15 @@ _testProxySSH() {
 	! _wantDep x0tigervncserver && echo 'warn: x0tigervncserver not found'
 	
 	! _wantDep vncpasswd && echo 'warn: vncpasswd not found, x11vnc broken!'
+	! _wantDep xset && echo 'warn: xset not found, vnc broken!'
 	
-	! _wantDep xset && echo 'warn: xset not found'
+	#! _wantDep pv && echo 'warn: pv not found, ssh benchmark broken'
+	#! _wantDep time && echo 'warn: time not found, ssh benchmark broken'
+	
+	! _wantDep curl && echo 'warn: missing: curl - public ip detection broken'
+	! _wantDep iperf3 && echo 'warn: missing: iperf3 - throughput benchmark broken'
+	
+	#! _wantDep dash && echo 'warn: dash not found, latency benchmark inflated'
 	
 	#! _wantDep xpra && echo 'warn: xpra not found'
 	#! _wantDep xephyr && echo 'warn: xephyr not found'
@@ -2187,27 +2968,35 @@ _ssh_setupUbiquitous_nonet() {
 #"$2" == port
 #"$3" == remote host (optional, localhost default)
 _checkRemoteSSH() {
-	local localPort
-	localPort=$(_findPort)
-	
 	local remoteHostDestination
 	remoteHostDestination="$3"
 	[[ "$remoteHostDestination" == "" ]] && remoteHostDestination="localhost"
 	
-	_timeout 14 _ssh -f "$1" -L "$localPort":"$remoteHostDestination":"$2" -N > /dev/null 2>&1
-	sleep 2
-	nmap -Pn localhost -p "$localPort" -sV 2> /dev/null | grep 'ssh' > /dev/null 2>&1 && return 0
-	sleep 2
-	nmap -Pn localhost -p "$localPort" -sV 2> /dev/null | grep 'ssh' > /dev/null 2>&1 && return 0
-	sleep 2
-	nmap -Pn localhost -p "$localPort" -sV 2> /dev/null | grep 'ssh' > /dev/null 2>&1 && return 0
-	sleep 2
-	nmap -Pn localhost -p "$localPort" -sV 2> /dev/null | grep 'ssh' > /dev/null 2>&1 && return 0
-	sleep 3
-	nmap -Pn localhost -p "$localPort" -sV 2> /dev/null | grep 'ssh' > /dev/null 2>&1 && return 0
+	#local localPort
+	#localPort=$(_findPort)
+	
+	#_timeout "$netTimeout" _ssh -f "$1" -L "$localPort":"$remoteHostDestination":"$2" -N > /dev/null 2>&1
+	#sleep 2
+	#nmap --host-timeout "$netTimeout" -Pn localhost -p "$localPort" -sV 2> /dev/null | grep 'ssh' > /dev/null 2>&1 && return 0
+	
+	mkdir -p "$safeTmp"
+	echo | _timeout "$netTimeout" _ssh -q -W "$remoteHostDestination":"$2" "$1" | head -c 3 2> /dev/null > "$safeTmp"/_checkRemoteSSH_header &
+	
+	local currentIteration
+	
+	for currentIteration in `seq 1 "$netTimeout"`;
+	do
+		sleep 0.3
+		grep 'SSH' "$safeTmp"/_checkRemoteSSH_header > /dev/null 2>&1 && return 0
+		sleep 0.3
+		grep 'SSH' "$safeTmp"/_checkRemoteSSH_header > /dev/null 2>&1 && return 0
+		sleep 0.3
+		grep 'SSH' "$safeTmp"/_checkRemoteSSH_header > /dev/null 2>&1 && return 0
+	done
 	
 	return 1
 }
+
 
 #Launches proxy if remote port is open at hostname.
 #"$1" == gateway name
@@ -2218,14 +3007,14 @@ _proxySSH() {
 	remoteHostDestination="$3"
 	[[ "$remoteHostDestination" == "" ]] && remoteHostDestination="localhost"
 	
-	#Checking for remote port is usually unnecessary, as the SSH command seems to fail normally if the remote destination is not up. Not explicitly checking with nmap saves significant time (performance). However, the code remains in place for immediate return to default if proven useful.
-	#if _checkRemoteSSH "$1" "$2" "$remoteHostDestination"
-	#then
+	#Checking for remote port is necessary, as the SSH command hangs indefinitely if a zombie tunnel is present (usually avoidable but highly detremential failure mode).
+	if _checkRemoteSSH "$1" "$2" "$remoteHostDestination"
+	then
 		if _ssh -q -W "$remoteHostDestination":"$2" "$1"
 		then
 			_stop
 		fi
-	#fi
+	fi
 	
 	return 0
 }
@@ -2284,12 +3073,17 @@ _ssh_sequence() {
 }
 
 _ssh() {
+	local currentEchoStatus
+	currentEchoStatus=$(stty --file=/dev/tty -g 2>/dev/null)
+	
 	if [[ "$sshInContainment" == "true" ]]
 	then
 		if _ssh_command "$@"
 		then
+			stty --file=/dev/tty "$currentEchoStatus" 2> /dev/null
 			return 0
 		fi
+		stty --file=/dev/tty "$currentEchoStatus" 2> /dev/null
 		return 1
 	fi
 	
@@ -2301,6 +3095,7 @@ _ssh() {
 	
 	export sshInContainment=""
 	
+	stty --file=/dev/tty "$currentEchoStatus" 2> /dev/null
 	return "$sshExitStatus"
 }
 
@@ -2519,6 +3314,40 @@ _rsync() {
 	rsync -e "$scriptAbsoluteLocation"" _ssh" "$@"
 }
 
+_scp_command() {
+	! _ssh_criticalDep && return 1
+	scp -F "$sshDir"/config "$@"
+}
+
+_scp_sequence() {
+	_start
+	
+	export sshBase="$safeTmp"/.ssh
+	_prepare_ssh
+	
+	#_setup_ssh
+	_setup_ssh_operations
+	
+	local sshExitStatus
+	_scp_command "$@"
+	sshExitStatus="$?"
+	
+	#Preventative workaround, not normally necessary.
+	stty echo > /dev/null 2>&1
+	
+	_setup_ssh_merge_known_hosts
+	
+	_stop "$sshExitStatus"
+}
+
+_scp() {
+	"$scriptAbsoluteLocation" _scp_sequence "$@"
+}
+
+_ssh_internal_command() {
+	_ssh -C -o ConnectionAttempts=3 "$@"
+}
+
 _start_safeTmp_ssh() {
 	cat "$scriptAbsoluteLocation" | base64 | _ssh -C -o ConnectionAttempts=2 "$@" '
 mkdir -p '"$safeTmpSSH"'
@@ -2533,12 +3362,42 @@ chmod 700 '"$safeTmpSSH"'/cautossh
 
 _stop_safeTmp_ssh() {
 #rm '"$safeTmpSSH"'/w_*/*
-	cat "$scriptAbsoluteLocation" | _ssh -C -o ConnectionAttempts=2 "$@" '
+	_ssh_internal_command "$@" '
 rm '"$safeTmpSSH"'/cautossh
-rmdir '"$safeTmpSSH"'/_local
+rmdir '"$safeTmpSSH"'/_local > /dev/null 2>&1
 rmdir '"$safeTmpSSH"'
 '
+	#Preventative workaround, not normally necessary.
+	stty echo > /dev/null 2>&1
+}
+
+# WARNING: Intermittent unreliability due to unlikely port collision rate.
+_get_ssh_external() {
+	export remotePublicIPv4=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _find_public_ipv4 | tr -dc 'a-zA-Z0-9.:')
+	export remotePublicIPv6=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _find_public_ipv6 | tr -dc 'a-zA-Z0-9.:')
 	
+	export remoteRouteIPv4=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _find_route_ipv4 | tr -dc 'a-zA-Z0-9.:')
+	export remoteRouteIPv6=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _find_route_ipv6 | tr -dc 'a-zA-Z0-9.:')
+	
+	# Common practice to use separate ports for dynamic IPv4 and IPv6 services, due to some applications not supporting both simultaneously.
+	export remotePortPublicIPv4=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _findPort 35500 49075 | tr -dc 'a-zA-Z0-9.:')
+	export remotePortPublicIPv6=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _findPort 35500 49075 | tr -dc 'a-zA-Z0-9.:')
+	
+	export remotePortRouteIPv4=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _findPort 35500 49075 | tr -dc 'a-zA-Z0-9.:')
+	export remotePortRouteIPv6=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _findPort 35500 49075 | tr -dc 'a-zA-Z0-9.:')
+}
+
+# WARNING: Intermittent unreliability due to significant port collision rate.
+_get_ssh_relay() {
+	export relayPortIn=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _findPort | tr -dc 'a-zA-Z0-9.:')
+	export relayPortOut=$(_ssh_internal_command "$@" "$safeTmpSSH"'/cautossh' _findPort | tr -dc 'a-zA-Z0-9.:')
+}
+
+_prepare_ssh_fifo() {
+	mkfifo "$safeTmp"/up
+	mkfifo "$safeTmp"/down
+	mkfifo "$safeTmp"/control
+	mkfifo "$safeTmp"/back
 }
 
 _vnc_ssh() {
@@ -2615,55 +3474,6 @@ _vncpasswd() {
 	return 1
 }
 
-_vncviewer_operations() {
-	_messagePlain_nominal 'init: _vncviewer_operations'
-	
-	_messagePlain_nominal 'Searching for X11 display.'
-	! _detect_x11 && _messagePlain_warn 'fail: _detect_x11'
-	
-	export DISPLAY="$destination_DISPLAY"
-	export XAUTHORITY="$destination_AUTH"
-	_messagePlain_probe '_vncviewer_operations'
-	_report_detect_x11
-	
-	_messagePlain_nominal 'Detecting and launching vncviewer.'
-	#TigerVNC
-	if vncviewer --help 2>&1 | grep 'PasswordFile   \- Password file for VNC authentication (default\=)' >/dev/null 2>&1
-	then
-		_messagePlain_good 'found: vncviewer (TigerVNC)'
-		
-		if ! vncviewer -DotWhenNoCursor -passwd "$vncPasswdFile" localhost:"$vncPort" "$@"
-		then
-			_messagePlain_bad 'fail: vncviewer'
-			stty echo > /dev/null 2>&1
-			return 1
-		fi
-		stty echo > /dev/null 2>&1
-		return 0
-	fi
-	
-	#TightVNC
-	if vncviewer --help 2>&1 | grep '\-passwd' >/dev/null 2>&1
-	then
-		_messagePlain_good 'found: vncviewer (TightVNC)'
-		
-		#if ! vncviewer -encodings "copyrect tight zrle hextile" localhost:"$vncPort"
-		if ! vncviewer -passwd "$vncPasswdFile" localhost:"$vncPort" "$@"
-		then
-			_messagePlain_bad 'fail: vncviewer'
-			stty echo > /dev/null 2>&1
-			return 1
-		fi
-		stty echo > /dev/null 2>&1
-		return 0
-	fi
-	
-	type vncviewer > /dev/null 2>&1 && _messagePlain_bad 'unsupported: vncviewer'
-	! type vncviewer > /dev/null 2>&1 && _messagePlain_bad 'missing: vncviewer'
-	
-	return 1
-}
-
 _vncviewer_sequence() {
 	_messageNormal '_vncviewer_sequence: Start'
 	_start
@@ -2690,52 +3500,6 @@ _x11vnc_command() {
 	x11vnc "$@"
 }
 
-_x11vnc_operations() {
-	_messagePlain_nominal 'init: _x11vnc_operations'
-	
-	_messagePlain_nominal 'Searching for X11 display.'
-	! _detect_x11 && _messagePlain_bad 'fail: _detect_x11'
-	
-	export DISPLAY="$destination_DISPLAY"
-	export XAUTHORITY="$destination_AUTH"
-	_messagePlain_probe 'x11vnc_operations'
-	_report_detect_x11
-	
-	_messagePlain_nominal 'Detecting and launching x11vnc.'
-	#x11vnc
-	if type x11vnc >/dev/null 2>&1
-	then
-		_messagePlain_good 'found: x11vnc'
-		
-		#-passwdfile cmd:"/bin/cat -"
-		#-noxrecord -noxfixes -noxdamage
-		if ! _x11vnc_command -localhost -rfbauth "$vncPasswdFile" -rfbport "$vncPort" -timeout 48 -xkb -display "$destination_DISPLAY" -auth "$destination_AUTH" -noxrecord -noxdamage
-		then
-			_messagePlain_bad 'fail: x11vnc'
-			return 1
-		fi
-		
-		return 0
-	fi
-	
-	#TigerVNC.
-	if type x0tigervncserver
-	then
-		_messagePlain_good 'found: x0tigervncserver'
-		
-		if ! x0tigervncserver -rfbauth "$vncPasswdFile" -rfbport "$vncPort"
-		then
-			_messagePlain_bad 'fail: x0tigervncserver'
-			return 1
-		fi
-		return 0
-	fi
-	
-	_messagePlain_bad 'missing: x11vnc || x0tigervncserver'
-	
-	return 1
-}
-
 _x11vnc_sequence() {
 	_messageNormal '_x11vnc_sequence: Start'
 	_start
@@ -2756,6 +3520,1379 @@ _x11vnc_sequence() {
 _x11vnc() {
 	"$scriptAbsoluteLocation" _x11vnc_sequence "$@"
 }
+
+_vncserver_sequence() {
+	_messageNormal '_vncserver_sequence: Start'
+	_start
+	
+	_messageNormal '_vncserver_sequence: Setting vncpasswd .'
+	cat - > "$vncPasswdFile".pln
+	! _vncpasswd && _messageError 'FAIL: vncpasswd' && _stop 1
+	
+	_messageNormal '_x11vnc_sequence: Operations .'
+	! _vncserver_operations && _messageError 'FAIL: vncserver' && _stop 1
+	
+	_stop
+}
+
+#Password must be given on standard input. Environment variables "$vncPort", "$vncPIDfile", must be set. Environment variables "$desktopEnvironmentGeometry", "$desktopEnvironmentLaunch", may be forced.
+_vncserver() {
+	"$scriptAbsoluteLocation" _vncserver_sequence "$@"
+}
+
+#Environment variable "$vncPIDfile", must be set.
+_vncserver_terminate() {
+	
+	# WARNING: For now, this does not always work with TigerVNC.
+	if [[ -e "$vncPIDfile" ]] && [[ -s "$vncPIDfile" ]]
+	then
+		_messagePlain_good 'found: usable "$vncPIDfile"'
+		
+		pkill -P $(cat "$vncPIDfile")
+		kill $(cat "$vncPIDfile")
+		#sleep 1
+		#kill -KILL $(cat "$vncPIDfile")
+		rm "$vncPIDfile"
+		
+		pgrep Xvnc && _messagePlain_warn 'found: Xvnc process'
+		pgrep Xtightvnc && _messagePlain_warn 'found: Xtightvnc process'
+		pgrep Xtigervnc && _messagePlain_warn 'found: Xtigervnc process'
+		
+		return 0
+	fi
+	
+	_messagePlain_bad 'missing: usable "$vncPIDfile'
+	_messagePlain_bad 'terminate: Xvnc, Xtightvnc, Xtigervnc'
+	
+	pkill Xvnc
+	pkill Xtightvnc
+	pkill Xtigervnc
+	rm "$vncPIDfile"
+	
+	return 1
+}
+
+_vnc_sequence() {
+	_messageNormal '_vnc_sequence: Start'
+	_start
+	_start_safeTmp_ssh "$@"
+	_prepare_vnc
+	
+	_messageNormal '_vnc_sequence: Launch: _x11vnc'
+	
+	# TODO WARNING Terminal echo (ie. "stty echo") lockup errors are possible as ssh is backgrounded without "-f".
+	cat "$vncPasswdFile".pln | _vnc_ssh -L "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' x11vnc_clip='"$x11vnc_clip"' x11vnc_scale='"$x11vnc_scale"' x11vnc_scale_cursor='"$x11vnc_scale_cursor"' '"$safeTmpSSH"/cautossh' _x11vnc' &
+	
+	_waitPort localhost "$vncPort"
+	
+	_messageNormal '_vnc_sequence: Ready: _waitPort localhost vncport= '"$vncPort"
+	
+	#VNC service may not always be ready when port is up.
+	
+	sleep 0.8
+	if ! _checkPort localhost "$vncPort"
+	then
+		stty echo > /dev/null 2>&1
+		_stop_safeTmp_ssh "$@"
+		_stop
+	fi
+	_messageNormal '_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
+	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' destination_DISPLAY='"$DISPLAY"' destination_AUTH='"$XAUTHORITY"' vncviewer_startFull='"$vncviewer_startFull"' vncviewer_manual='"$vncviewer_manual"' '"$scriptAbsoluteLocation"' _vncviewer'
+	
+	sleep 3
+	if ! _checkPort localhost "$vncPort"
+	then
+		stty echo > /dev/null 2>&1
+		_stop_safeTmp_ssh "$@"
+		_stop
+	fi
+	_messageNormal '_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
+	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' destination_DISPLAY='"$DISPLAY"' destination_AUTH='"$XAUTHORITY"' vncviewer_startFull='"$vncviewer_startFull"' vncviewer_manual='"$vncviewer_manual"' '"$scriptAbsoluteLocation"' _vncviewer'
+	
+	sleep 9
+	if ! _checkPort localhost "$vncPort"
+	then
+		stty echo > /dev/null 2>&1
+		_stop_safeTmp_ssh "$@"
+		_stop
+	fi
+	_messageNormal '_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
+	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' destination_DISPLAY='"$DISPLAY"' destination_AUTH='"$XAUTHORITY"' vncviewer_startFull='"$vncviewer_startFull"' vncviewer_manual='"$vncviewer_manual"' '"$scriptAbsoluteLocation"' _vncviewer'
+	
+	
+	_messageNormal '_vnc_sequence: Done: final attempt: _vncviewer'
+	
+	_messageNormal '_vnc_sequence: Stop'
+	stty echo > /dev/null 2>&1
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_vnc() {
+	"$scriptAbsoluteLocation" _vnc_sequence "$@"
+}
+
+_push_vnc_sequence() {
+	_messageNormal '_push_vnc_sequence: Start'
+	_start
+	_start_safeTmp_ssh "$@"
+	_prepare_vnc
+	
+	_messageNormal '_push_vnc_sequence: Launch: _x11vnc'
+	
+	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' x11vnc_clip='"$x11vnc_clip"' x11vnc_scale='"$x11vnc_scale"' x11vnc_scale_cursor='"$x11vnc_scale_cursor"' '"$scriptAbsoluteLocation"' _x11vnc' &
+	#-noxrecord -noxfixes -noxdamage
+	
+	_waitPort localhost "$vncPort"
+	
+	_messageNormal '_push_vnc_sequence: Ready: _waitPort localhost vncport= '"$vncPort"
+	
+	#VNC service may not always be ready when port is up.
+	
+	sleep 0.8
+	if ! _checkPort localhost "$vncPort"
+	then
+		stty echo > /dev/null 2>&1
+		_stop_safeTmp_ssh "$@"
+		_stop
+	fi
+	_messageNormal '_push_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
+	cat "$vncPasswdFile".pln | _vnc_ssh -R "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' vncviewer_startFull='"$vncviewer_startFull"' vncviewer_manual='"$vncviewer_manual"' '"$safeTmpSSH"/cautossh' _vncviewer'
+	
+	sleep 3
+	if ! _checkPort localhost "$vncPort"
+	then
+		stty echo > /dev/null 2>&1
+		_stop_safeTmp_ssh "$@"
+		_stop
+	fi
+	_messageNormal '_push_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
+	cat "$vncPasswdFile".pln | _vnc_ssh -R "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' vncviewer_startFull='"$vncviewer_startFull"' vncviewer_manual='"$vncviewer_manual"' '"$safeTmpSSH"/cautossh' _vncviewer'
+	
+	sleep 9
+	if ! _checkPort localhost "$vncPort"
+	then
+		stty echo > /dev/null 2>&1
+		_stop_safeTmp_ssh "$@"
+		_stop
+	fi
+	_messageNormal '_push_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
+	cat "$vncPasswdFile".pln | _vnc_ssh -R "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' vncviewer_startFull='"$vncviewer_startFull"' vncviewer_manual='"$vncviewer_manual"' '"$safeTmpSSH"/cautossh' _vncviewer'
+	
+	_messageNormal '_push_vnc_sequence: Done: final attempt: _vncviewer'
+	
+	_messageNormal '_push_vnc_sequence: Stop'
+	stty echo > /dev/null 2>&1
+	_stop_safeTmp_ssh "$@"
+	_stop 1
+}
+
+_push_vnc() {
+	"$scriptAbsoluteLocation" _push_vnc_sequence "$@"
+}
+
+_desktop_sequence() {
+	_messageNormal '_desktop_sequence: Start'
+	_start
+	_start_safeTmp_ssh "$@"
+	_prepare_vnc
+	
+	_messageNormal '_vnc_sequence: Launch: _vncserver'
+	# TODO WARNING Terminal echo (ie. "stty echo") lockup errors are possible as ssh is backgrounded without "-f".
+	cat "$vncPasswdFile".pln | _vnc_ssh -L "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' vncPIDfile='"$vncPIDfile"' desktopEnvironmentGeometry='"$desktopEnvironmentGeometry"' desktopEnvironmentLaunch='"$desktopEnvironmentLaunch"' '"$safeTmpSSH"/cautossh' _vncserver' &
+	
+	
+	_waitPort localhost "$vncPort"
+	sleep 0.8 #VNC service may not always be ready when port is up.
+	
+	_messageNormal '_vnc_sequence: Ready: _waitPort. Launch: _vncviewer'
+	
+	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' destination_DISPLAY='"$DISPLAY"' destination_AUTH='"$XAUTHORITY"' vncviewer_startFull='"$vncviewer_startFull"' vncviewer_manual='"$vncviewer_manual"' '"$scriptAbsoluteLocation"' _vncviewer'
+	stty echo > /dev/null 2>&1
+	
+	_messageNormal '_vnc_sequence: Terminate: _vncserver_terminate'
+	
+	_vnc_ssh "$@" 'env vncPIDfile='"$vncPIDfile"' '"$safeTmpSSH"/cautossh' _vncserver_terminate'
+	
+	_messageNormal '_desktop_sequence: Stop'
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+#Launches VNC server and client, with up to nine nonpersistent desktop environments.
+_desktop() {
+	"$scriptAbsoluteLocation" _desktop_sequence "$@"
+}
+
+_push_desktop_sequence() {
+	_messageNormal '_push_desktop_sequence: Start'
+	_start
+	_start_safeTmp_ssh "$@"
+	_prepare_vnc
+	
+	_messageNormal '_push_desktop_sequence: Launch: _vncserver'
+	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' vncPIDfile='"$vncPIDfile_local"' desktopEnvironmentGeometry='"$desktopEnvironmentGeometry"' desktopEnvironmentLaunch='"$desktopEnvironmentLaunch"' '"$scriptAbsoluteLocation"' _vncserver' &
+	
+	
+	_waitPort localhost "$vncPort"
+	sleep 0.8 #VNC service may not always be ready when port is up.
+	
+	_messageNormal '_push_desktop_sequence: Ready: _waitPort. Launch: _vncviewer'
+	
+	cat "$vncPasswdFile".pln | _vnc_ssh -R "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' destination_DISPLAY='""' vncviewer_startFull='"$vncviewer_startFull"' vncviewer_manual='"$vncviewer_manual"' '"$safeTmpSSH"/cautossh' _vncviewer'
+	stty echo > /dev/null 2>&1
+	
+	_messageNormal '_push_desktop_sequence: Terminate: _vncserver_terminate'
+	
+	bash -c 'env vncPIDfile='"$vncPIDfile_local"' '"$scriptAbsoluteLocation"' _vncserver_terminate'
+	
+	_messageNormal '_desktop_sequence: Stop'
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_push_desktop() {
+	"$scriptAbsoluteLocation" _push_desktop_sequence "$@"
+}
+
+#Builtin version of ssh-copy-id.
+_ssh_copy_id() {
+	_start
+	
+	#"$scriptAbsoluteLocation" _ssh "$@" 'mkdir -p "$HOME"/.ssh'
+	cat "$scriptLocal"/ssh/id_rsa.pub | "$scriptAbsoluteLocation" _ssh "$@" 'mkdir -p "$HOME"/.ssh < /dev/null ; cat - >> "$HOME"/.ssh/authorized_keys'
+	
+	_stop
+}
+alias _ssh-copy-id=_ssh_copy_id
+
+#Builtin version of ssh-copy-id.
+_ssh_copy_id_gateway() {
+	_start
+	
+	#"$scriptAbsoluteLocation" _ssh "$@" 'mkdir -p "$HOME"/.ssh'
+	cat "$scriptLocal"/ssh/rev_gate.pub | "$scriptAbsoluteLocation" _ssh "$@" 'mkdir -p "$HOME"/.ssh < /dev/null ; cat - >> "$HOME"/.ssh/authorized_keys'
+	
+	_stop
+}
+alias _ssh-copy-id-gateway=_ssh_copy_id_gateway
+
+#Builtin version of ssh-copy-id.
+_ssh_copy_id_command() {
+	_start
+	
+	#"$scriptAbsoluteLocation" _ssh "$@" 'mkdir -p "$HOME"/.ssh'
+	cat "$scriptLocal"/ssh/rev_command.pub | "$scriptAbsoluteLocation" _ssh "$@" 'mkdir -p "$HOME"/.ssh < /dev/null ; cat - >> "$HOME"/.ssh/authorized_keys'
+	
+	_stop
+}
+alias _ssh-copy-id-command=_ssh_copy_id_command
+
+#"$1" == "key_name"
+#"$2" == "local_subdirectory" (optional)
+_setup_ssh_copyKey() {
+	local sshKeyName
+	local sshKeyLocalSubdirectory
+	
+	sshKeyName="$1"
+	[[ "$2" != "" ]] && sshKeyLocalSubdirectory="$2"/
+	
+	if [[ -e "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName" ]]
+	then
+		chmod 600 "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName"
+		chmod 600 "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName".pub > /dev/null 2>&1
+		
+		cp -n "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName" "$sshLocalSSH"/"$sshKeyName"
+		cp -n "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName".pub "$sshLocalSSH"/"$sshKeyName".pub > /dev/null 2>&1
+		
+		return 0
+	fi
+	
+	if [[ -e "$scriptLocal"/ssh/"$sshKeyName" ]]
+	then
+		chmod 600 "$scriptLocal"/ssh/"$sshKeyName"
+		chmod 600 "$scriptLocal"/ssh/"$sshKeyName".pub > /dev/null 2>&1
+		
+		cp -n "$scriptLocal"/ssh/"$sshKeyName" "$sshLocalSSH"/"$sshKeyName"
+		cp -n "$scriptLocal"/ssh/"$sshKeyName".pub "$sshLocalSSH"/"$sshKeyName".pub > /dev/null 2>&1
+		
+		return 0
+	fi
+	
+	return 1
+}
+
+#Overload with "ops".
+_setup_ssh_extra() {
+	true
+}
+
+_setup_ssh_merge_known_hosts() {
+	[[ ! -e "$scriptLocal"/ssh/known_hosts ]] && echo > "$scriptLocal"/ssh/known_hosts
+	[[ ! -e "$sshLocalSSH"/known_hosts ]] && echo > "$sshLocalSSH"/known_hosts
+	sort "$scriptLocal"/ssh/known_hosts "$sshLocalSSH"/known_hosts | uniq > "$safeTmp"/known_hosts_uniq
+	_cpDiff "$safeTmp"/known_hosts_uniq "$scriptLocal"/ssh/known_hosts
+	
+	_cpDiff "$scriptLocal"/ssh/known_hosts "$sshLocalSSH"/known_hosts
+}
+
+_setup_ssh_rmKey() {
+	rm -f "$scriptLocal"/ssh/"$1" >/dev/null 2>&1
+	rm -f "$scriptLocal"/ssh/"$1".pub >/dev/null 2>&1
+	rm -f "$sshDir"/"$1" >/dev/null 2>&1
+	rm -f "$sshDir"/"$1".pub >/dev/null 2>&1
+	rm -f "$sshLocalSSH"/"$1" >/dev/null 2>&1
+	rm -f "$sshLocalSSH"/"$1".pub >/dev/null 2>&1
+}
+
+_setup_ssh_operations() {
+	# "_setup_local" .
+	[[ "$ub_setup_local" == 'true' ]] && export sshBase="$safeTmp"/.ssh
+	
+	_prepare_ssh
+	
+	mkdir -p "$scriptLocal"/ssh
+	
+	! [[ -e "$sshBase" ]] && mkdir -p "$sshBase" && chmod 700 "$sshBase"
+	! [[ -e "$sshBase"/"$ubiquitiousBashID" ]] && mkdir -p "$sshBase"/"$ubiquitiousBashID" && chmod 700 "$sshBase"/"$ubiquitiousBashID"
+	! [[ -e "$sshDir" ]] && mkdir -p "$sshDir" && chmod 700 "$sshDir"
+	! [[ -e "$sshLocal" ]] && mkdir -p "$sshLocal" && chmod 700 "$sshLocal"
+	! [[ -e "$sshLocalSSH" ]] && mkdir -p "$sshLocalSSH" && chmod 700 "$sshLocalSSH"
+	
+	#! grep "$ubiquitiousBashID" "$sshBase"/config > /dev/null 2>&1 && echo 'Include "'"$sshUbiquitous"'/config"' >> "$sshBase"/config
+	
+	#Prepend include directive. Mitigates the risk of falling under an existing config directive (eg. Host/Match). Carries the relatively insignificant risk of a non-atomic operation.
+	if ! grep "$ubiquitiousBashID" "$sshBase"/config > /dev/null 2>&1 && [[ ! -e "$sshBase"/config.tmp ]]
+	then
+		echo -n >> "$sshBase"/config
+		echo 'Include "'"$sshUbiquitous"'/config"' >> "$sshBase"/config.tmp
+		echo >> "$sshBase"/config.tmp
+		cat "$sshBase"/config >> "$sshBase"/config.tmp
+		mv "$sshBase"/config.tmp "$sshBase"/config
+		
+	fi
+	
+	! grep "$netName" "$sshUbiquitous"/config > /dev/null 2>&1 && echo 'Include "'"$sshDir"'/config"' >> "$sshBase"/config >> "$sshUbiquitous"/config
+	
+	if [[ "$keepKeys_SSH" == "false" ]]
+	then
+		_setup_ssh_rmKey id_rsa
+		_setup_ssh_rmKey rev_gate
+		_setup_ssh_rmKey rev_cmd
+	fi
+	
+	if ! [[ -e "$scriptLocal"/ssh/id_rsa ]] && ! [[ -e "$sshLocalSSH"/id_rsa ]]
+	then
+		ssh-keygen -b 4096 -t rsa -N "" -f "$scriptLocal"/ssh/id_rsa -C cautossh@"$netName"
+	fi
+	
+	#Less privileged key used by asset machines to establish persistent reverse tunnels ending at a gateway server.
+	if ! [[ -e "$scriptLocal"/ssh/rev_gate ]] && ! [[ -e "$sshLocalSSH"/rev_gate ]]
+	then
+		ssh-keygen -b 4096 -t rsa -N "" -f "$scriptLocal"/ssh/rev_gate -C cautossh@"$netName"
+	fi
+	
+	#Less privileged key used by random machines to establish temporary reverse tunnels ending at a command machine.
+	if ! [[ -e "$scriptLocal"/ssh/rev_cmd ]] && ! [[ -e "$sshLocalSSH"/rev_cmd ]]
+	then
+		ssh-keygen -b 4096 -t rsa -N "" -f "$scriptLocal"/ssh/rev_cmd -C cautossh@"$netName"
+	fi
+	
+	_here_ssh_config >> "$safeTmp"/config
+	_cpDiff "$safeTmp"/config "$sshDir"/config
+	
+	_setup_ssh_copyKey id_rsa
+	_setup_ssh_copyKey rev_gate
+	_setup_ssh_copyKey rev_cmd
+	
+	_setup_ssh_merge_known_hosts
+	
+	_cpDiff "$scriptAbsoluteLocation" "$sshDir"/cautossh
+	
+	# TODO Replace with a less oversimplified destination directory structure.
+	#Concatenates all "ops" directives into one file to allow a single "cpDiff" operation.
+	[[ -e "$objectDir"/ops ]] && cat "$objectDir"/ops >> "$safeTmp"/opsAll
+	[[ -e "$scriptLocal"/ops ]] && cat "$scriptLocal"/ops >> "$safeTmp"/opsAll
+	[[ -e "$scriptLocal"/ssh/ops ]] && cat "$scriptLocal"/ssh/ops >> "$safeTmp"/opsAll
+	[[ -e "$objectDir"/ops.sh ]] && cat "$objectDir"/ops.sh >> "$safeTmp"/opsAll
+	[[ -e "$scriptLocal"/ops.sh ]] && cat "$scriptLocal"/ops.sh >> "$safeTmp"/opsAll
+	[[ -e "$scriptLocal"/ssh/ops.sh ]] && cat "$scriptLocal"/ssh/ops.sh >> "$safeTmp"/opsAll
+	
+	[[ -e "$objectDir"/opsauto ]] && cat "$objectDir"/opsauto >> "$safeTmp"/opsAll
+	[[ -e "$scriptLocal"/opsauto ]] && cat "$scriptLocal"/opsauto >> "$safeTmp"/opsAll
+	[[ -e "$scriptLocal"/ssh/opsauto ]] && cat "$scriptLocal"/ssh/opsauto >> "$safeTmp"/opsAll
+	
+	
+	_cpDiff "$safeTmp"/opsAll "$sshLocalSSH"/ops > /dev/null 2>&1
+	
+	_setup_ssh_extra
+}
+
+_setup_ssh_sequence() {
+	_start
+	
+	_setup_ssh_operations
+	
+	_stop
+}
+
+_setup_ssh() {
+	"$scriptAbsoluteLocation" _setup_ssh_sequence "$@"
+}
+
+_setup_ssh_commands() {
+	_find_setupCommands -name '_ssh' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	_find_setupCommands -name '_rsync' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	
+	_find_setupCommands -name '_sshfs' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	
+	_find_setupCommands -name '_web' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	
+	_find_setupCommands -name '_backup' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	
+	_find_setupCommands -name '_fs' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	
+	_find_setupCommands -name '_vnc' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	_find_setupCommands -name '_push_vnc' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	_find_setupCommands -name '_desktop' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	_find_setupCommands -name '_push_desktop' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	
+	_find_setupCommands -name '_wake' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
+	
+	_find_setupCommands -name '_meta' -exec "$scriptAbsoluteLocation" _setupCommand_meta '{}' \;
+}
+
+_package_cautossh() {
+	local localFunctionEntryPWD
+	localFunctionEntryPWD="$PWD"
+	cd "$scriptAbsoluteFolder"
+	
+	
+	#cp -a "$scriptAbsoluteFolder"/_index "$safeTmp"/package
+	
+	#https://stackoverflow.com/questions/4585929/how-to-use-cp-command-to-exclude-a-specific-directory
+	#find ./_index -type f -not -path '*_arc*' -exec cp -d --preserve=all '{}' "$safeTmp"'/package/''{}' \;
+	
+	mkdir -p ./_local
+	rsync -av --progress --exclude "_arc" ./_index/ "$safeTmp"/package/_index/
+	
+	mkdir -p ./_local
+	cp -a ./_local/ssh "$safeTmp"/package/_local/
+	cp -a ./_local/tor "$safeTmp"/package/_local/
+	
+	
+	cd "$localFunctionEntryPWD"
+}
+
+#May be overridden by "ops" if multiple gateways are required.
+# ATTENTION: An "ops.sh" file will almost always include simpler directives, specifically uncommented unconditional "_torServer_SSH" and "_autossh" commands.
+_ssh_autoreverse() {
+	true
+	local currentExitStatus
+	currentExitStatus='1'
+	
+	#_torServer_SSH
+	
+	#_autossh
+	
+	# ATTENTION: Supports multiple jump hosts if desired.
+	#_autossh firstGateway
+	#_autossh secondGateway
+	
+	
+	# Conditional fallback. Only appropriate if directive from "ops.sh" is unavialable.
+	
+	[[ -e "$scriptLocal"/tor/sshd/"${matchingReversePorts[0]}" ]] && currentExitStatus='0' && _torServer_SSH
+	#[[ $? == '0' ]] && currentExitStatus='0'
+	
+	if [[ -e "$objectDir"/ops ]] || [[ -e "$objectDir"/ops.sh ]] || [[ -e "$scriptLocal"/ops ]] || [[ -e "$scriptLocal"/ops.sh ]] || [[ -e "$scriptLocal"/ssh/ops ]] || [[ -e "$scriptLocal"/ssh/ops.sh ]]
+	then
+		currentExitStatus='0'
+		_autossh
+	fi
+	#[[ $? == '0' ]] && currentExitStatus='0'
+	
+	return "$currentExitStatus"
+}
+
+_ssh_external_procedure() {
+	echo
+	_messagePlain_probe_var remotePublicIPv4
+	_messagePlain_probe_var remotePublicIPv6
+	echo
+	_messagePlain_probe_var remoteRouteIPv4
+	_messagePlain_probe_var remoteRouteIPv6
+	echo
+}
+
+_ssh_external_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	
+	_messagePlain_nominal 'get: external'
+	_get_ssh_external "$@"
+	
+	_messagePlain_nominal 'report: IP Address'
+	_ssh_external_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_external() {
+	_ssh_external_sequence "$@"
+}
+
+_ssh_public_ipv4() {
+	_start
+	_start_safeTmp_ssh "$@"
+	_get_ssh_external "$@"
+	
+	echo "$remotePublicIPv4"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_public_ipv6() {
+	_start
+	_start_safeTmp_ssh "$@"
+	_get_ssh_external "$@"
+	
+	echo "$remotePublicIPv6"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_route_ipv4() {
+	_start
+	_start_safeTmp_ssh "$@"
+	_get_ssh_external "$@"
+	
+	echo "$remoteRouteIPv4"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_route_ipv6() {
+	_start
+	_start_safeTmp_ssh "$@"
+	_get_ssh_external "$@"
+	
+	echo "$remoteRouteIPv6"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+# WARNING: Allows self to login as self to local SSH server with own SSH key.
+# WARNING: Requires local SSH server listening on port 22.
+#https://blog.famzah.net/2015/06/26/openssh-ciphers-performance-benchmark-update-2015/
+_ssh_cipher_benchmark_local_sequence() {
+	_start
+	
+	local localSSHpubKeySample
+	localSSHpubKeySample=$(tail -c +9 "$HOME"/.ssh/id_rsa.pub | head -c 36 | tr -dc 'a-zA-Z0-9')
+	
+	mkdir -p "$HOME"/.ssh
+	[[ ! -e "$HOME"/.ssh/id_rsa ]] && [[ ! -e "$HOME"/.ssh/id_rsa.pub ]] && ssh-keygen -b 4096 -t rsa -N "" -f "$HOME"/.ssh/id_rsa
+	
+	[[ ! -e "$HOME"/.ssh/authorized_keys ]] && echo >> "$HOME"/.ssh/authorized_keys
+	
+	! grep "$localSSHpubKeySample" "$HOME"/.ssh/authorized_keys > /dev/null 2>&1 && cat "$HOME"/.ssh/id_rsa.pub >> "$HOME"/.ssh/authorized_keys
+	
+	[[ ! -e "$HOME"/.ssh/id_rsa ]] && _messagePlain_bad 'fail: missing: ssh key private' && _stop 1
+	[[ ! -e "$HOME"/.ssh/id_rsa.pub ]] && _messagePlain_bad 'fail: missing: ssh key public' && _stop 1
+	[[ ! -e "$HOME"/.ssh/authorized_keys ]] && _messagePlain_bad 'fail: missing: ssh authorized_keys' && _stop 1
+	
+	_messagePlain_nominal '_ssh_cipher_benchmark: fill'
+	dd if=/dev/urandom bs=1M count=512 | base64 > "$safeTmp"/fill
+	[[ ! -e "$safeTmp"/fill ]] && _messagePlain_bad 'fail: missing: fill' && _stop 1
+	
+	_messagePlain_nominal '_ssh_cipher_benchmark: benchmark'
+	# uses "$safeTmp"/dd.txt as a temporary file
+	#for cipher in aes128-cbc aes128-ctr aes128-gcm@openssh.com aes192-cbc aes192-ctr aes256-cbc aes256-ctr aes256-gcm@openssh.com arcfour arcfour128 arcfour256 blowfish-cbc cast128-cbc chacha20-poly1305@openssh.com 3des-cbc
+	for cipher in aes128-ctr aes128-gcm@openssh.com aes192-ctr aes256-ctr aes256-gcm@openssh.com chacha20-poly1305@openssh.com
+	do
+		for i in 1 2 3
+		do
+			_messagePlain_probe "Cipher: $cipher (try $i)"
+			
+			#dd if="$safeTmp"/fill bs=4M count=512 2>"$safeTmp"/dd.txt | pv --size 2G | time -p ssh -c "$cipher" "$USER"@localhost 'cat > /dev/null'
+			dd if="$safeTmp"/fill bs=4M 2>/dev/null | ssh -c "$cipher" "$USER"@localhost 'dd of=/dev/null' 2>&1 | grep -v records
+			#grep -v records "$safeTmp"/dd.txt
+		done
+	done
+	
+	
+	_stop
+}
+
+_ssh_cipher_benchmark_remote_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	
+	_ssh "$@" "$safeTmpSSH"'/cautossh _ssh_cipher_benchmark_local_sequence'
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_cipher_benchmark_local() {
+	"$scriptAbsoluteLocation" _ssh_cipher_benchmark_local_sequence "$@"
+}
+
+_ssh_cipher_benchmark_remote() {
+	"$scriptAbsoluteLocation" _ssh_cipher_benchmark_remote_sequence "$@"
+}
+
+_ssh_cipher_benchmark() {
+	_ssh_cipher_benchmark_remote "$@"
+}
+
+_ssh_iperf_procedure() {
+	_messagePlain_nominal 'iperf: A'
+	local currentPort_iperf_up=$(_findPort)
+	_messageCMD _ssh -o 'Compression=no' -L "$currentPort_iperf_up":localhost:"$currentPort_iperf_up" "$@" "$safeTmpSSH"/cautossh' '_ssh_benchmark_iperf_server' '"$currentPort_iperf_up" &
+	sleep 5
+	#_waitPort localhost "$currentPort_iperf_up"
+	iperf3 -c "localhost" -p "$currentPort_iperf_up"
+	
+	_messagePlain_nominal 'iperf: B'
+	local currentPort_iperf_down=$(_findPort)
+	_ssh_benchmark_iperf_server "$currentPort_iperf_down" &
+	sleep 5
+	#_waitPort localhost "$currentPort_iperf_down"
+	_messageCMD _ssh -o 'Compression=no' -R "$currentPort_iperf_down":localhost:"$currentPort_iperf_down" "$@" 'iperf3 -c localhost -p '"$currentPort_iperf_down"
+}
+
+_ssh_emit_procedure() {
+	_messagePlain_nominal 'emit: upload'
+	
+	_messagePlain_probe '1k'
+	dd if=/dev/urandom bs=1k count=1 2>/dev/null | base64 > "$safeTmp"/fill_001k
+	dd if="$safeTmp"/fill_001k bs=512 2>/dev/null | _timeout 5 _ssh "$@" 'dd of=/dev/null' 2>&1 | grep -v records
+	_messagePlain_probe '10k'
+	dd if=/dev/urandom bs=1k count=10 2>/dev/null | base64 > "$safeTmp"/fill_010k
+	dd if="$safeTmp"/fill_010k bs=1k 2>/dev/null | _timeout 5 _ssh "$@" 'dd of=/dev/null' 2>&1 | grep -v records
+	
+	_messagePlain_probe '1M'
+	dd if=/dev/urandom bs=1M count=1 2>/dev/null | base64 > "$safeTmp"/fill_001M
+	dd if="$safeTmp"/fill_001M bs=4096 2>/dev/null | _timeout 10 _ssh "$@" 'dd of=/dev/null' 2>&1 | grep -v records
+	_messagePlain_probe '10M'
+	dd if=/dev/urandom bs=1M count=10 2>/dev/null | base64 > "$safeTmp"/fill_010M
+	dd if="$safeTmp"/fill_010M bs=4096 2>/dev/null | _timeout 30 _ssh "$@" 'dd of=/dev/null' 2>&1 | grep -v records
+	
+	_messagePlain_probe '100M'
+	dd if=/dev/urandom bs=1M count=100 2>/dev/null | base64 > "$safeTmp"/fill_100M
+	dd if="$safeTmp"/fill_100M bs=4096 2>/dev/null | _timeout 45 _ssh "$@" 'dd of=/dev/null' 2>&1 | grep -v records
+	
+	# WARNING: Less reliable test, non-link bottlenecks.
+	_messagePlain_nominal 'emit: download'
+	
+	# https://superuser.com/questions/792427/creating-a-large-file-of-random-bytes-quickly
+	#dd if=<(openssl enc -aes-256-ctr -pass pass:"$(dd if=/dev/urandom bs=128 count=1 2>/dev/null | base64)" -nosalt < /dev/zero) bs=1M count=100 iflag=fullblock
+	
+	_timeout 45 _ssh "$@" 'dd if=<(openssl enc -aes-256-ctr -pass pass:"$(head -c 128 /dev/urandom | base64)" -nosalt < /dev/zero 2> /dev/null ) bs=1M count=15 iflag=fullblock 2>/dev/null' | dd bs=1M of=/dev/null | grep -v records
+}
+
+_ssh_benchmark_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	_prepare_ssh_fifo
+	
+	#_messagePlain_nominal 'get: external'
+	#_get_ssh_external "$@"
+	#_messagePlain_nominal 'get: relay'
+	#_get_ssh_relay "$@"
+	
+	#_ssh_external_procedure "$@"
+	#_messagePlain_nominal 'report: IP Address'
+	
+	_ssh_cycle "$@"
+	
+	_ssh_latency_procedure "$@"
+	
+	_ssh_iperf_procedure "$@"
+	_ssh_emit_procedure "$@"
+	
+	_ssh_common_internal_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_benchmark() {
+	"$scriptAbsoluteLocation" _ssh_benchmark_sequence "$@"
+}
+
+_ssh_pulse_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	_prepare_ssh_fifo
+	
+	_messagePlain_nominal 'get: external'
+	_get_ssh_external "$@"
+	#_messagePlain_nominal 'get: relay'
+	#_get_ssh_relay "$@"
+	
+	_ssh_external_procedure "$@"
+	_messagePlain_nominal 'report: IP Address'
+	
+	_ssh_ping_public_procedure "$@"
+	_ssh_ping_route_procedure "$@"
+	
+	_ssh_iperf_raw_public_procedure "$@"
+	_ssh_iperf_raw_route_procedure "$@"
+	
+	_ssh_common_external_public_procedure "$@"
+	_ssh_common_external_route_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_pulse() {
+	"$scriptAbsoluteLocation" _ssh_pulse_sequence "$@"
+}
+
+_ssh_check_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	_prepare_ssh_fifo
+	
+	_messagePlain_nominal 'get: external'
+	_get_ssh_external "$@"
+	#_messagePlain_nominal 'get: relay'
+	#_get_ssh_relay "$@"
+	
+	_ssh_external_procedure "$@"
+	_messagePlain_nominal 'report: IP Address'
+	
+	_ssh_cycle "$@"
+	
+	_ssh_latency_procedure "$@"
+	
+	_ssh_iperf_procedure "$@"
+	_ssh_emit_procedure "$@"
+	
+	
+	_ssh_ping_public_procedure "$@"
+	_ssh_ping_route_procedure "$@"
+	
+	_ssh_iperf_raw_public_procedure "$@"
+	_ssh_iperf_raw_route_procedure "$@"
+	
+	_ssh_common_external_public_procedure "$@"
+	_ssh_common_external_route_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_check() {
+	"$scriptAbsoluteLocation" _ssh_check_sequence "$@"
+}
+
+
+# Tests showed slightly better performance with netcat vs socat, and 2-3x improvement over SSH.
+# Stream of pseudorandom bytes to whoever connects. Intended only for benchmarking.
+# "$1" == listen port
+# "$2" == MB (MegaBytes)
+_ssh_benchmark_download_public_source_sequence_ipv4() {
+	dd if=<(openssl enc -aes-256-ctr -pass pass:"$(head -c 128 /dev/urandom | base64)" -nosalt < /dev/zero 2> /dev/null ) bs=1M count="$2" iflag=fullblock 2>/dev/null | socat -4 - TCP-LISTEN:"$1"
+	
+	#openssl enc -aes-256-ctr -pass pass:$(dd if=/dev/urandom bs=128 count=1 2>/dev/null | base64) -nosalt < /dev/zero) | socat - TCP-LISTEN:"10000" > /dev/null 2>&1 &
+	#openssl enc -aes-256-ctr -pass pass:"$(head -c 128 /dev/urandom | base64)" -nosalt < /dev/zero 2>/dev/null | head -c 15000000 | socat - TCP-LISTEN:"10000"
+	
+	#socat -u /dev/zero TCP4-LISTEN:10000
+	#_proxy_direct 45.62.232.168 10000 | dd bs=1M count=15 of=/dev/null iflag=fullblock
+	
+	#socat -u /dev/zero TCP4-LISTEN:10000
+	#socat -u TCP4:45.62.232.168:10000 STDOUT | dd of=/dev/null iflag=fullblock bs=1M count=100
+}
+
+_ssh_benchmark_download_public_source_ipv4() {
+	nohup "$scriptAbsoluteLocation" _ssh_benchmark_download_public_source_sequence_ipv4 "$@" > /dev/null 2>&1 &
+}
+
+# Tests showed slightly better performance with netcat vs socat, and 2-3x improvement over SSH.
+# Stream of pseudorandom bytes to whoever connects. Intended only for benchmarking.
+# "$1" == listen port
+# "$2" == MB (MegaBytes)
+_ssh_benchmark_download_public_source_sequence_ipv6() {
+	dd if=<(openssl enc -aes-256-ctr -pass pass:"$(head -c 128 /dev/urandom | base64)" -nosalt < /dev/zero 2> /dev/null ) bs=1M count="$2" iflag=fullblock 2>/dev/null | socat -6 - TCP-LISTEN:"$1"
+}
+
+_ssh_benchmark_download_public_source_ipv6() {
+	nohup "$scriptAbsoluteLocation" _ssh_benchmark_download_public_source_sequence_ipv6 "$@" > /dev/null 2>&1 &
+}
+
+_ssh_benchmark_iperf_server() {
+	"$scriptAbsoluteLocation" _timeout $(expr "$netTimeout" '*' 2 + 17 '*' 2 ) iperf3 -s -p "$1" > /dev/null 2>&1
+}
+
+_ssh_benchmark_iperf_server_ipv4() {
+	nohup "$scriptAbsoluteLocation" _timeout $(expr "$netTimeout" '*' 2 + 17 '*' 2 ) iperf3 -s -p "$1" > /dev/null 2>&1 &
+}
+
+_ssh_benchmark_iperf_server_ipv6() {
+	nohup "$scriptAbsoluteLocation" _timeout $(expr "$netTimeout" '*' 3 + 17 '*' 3 + 4 '*' 3 ) iperf3 -V -s -p "$1" > /dev/null 2>&1 &
+}
+
+_ssh_benchmark_iperf_client_ipv4() {
+	_timeout $(expr "$netTimeout" + 17 ) iperf3 -c "$1" -p "$2"
+}
+
+_ssh_benchmark_iperf_client_ipv4_rev() {
+	_timeout $(expr "$netTimeout" + 17 ) iperf3 -c "$1" -p "$2" -R
+}
+
+_ssh_benchmark_iperf_client_ipv6() {
+	_timeout $(expr "$netTimeout" + 17 ) iperf3 -V -c "$1" -p "$2"
+}
+
+_ssh_benchmark_iperf_client_ipv6_rev() {
+	_timeout $(expr "$netTimeout" + 17 ) iperf3 -V -c "$1" -p "$2" -R
+}
+
+_ssh_benchmark_download_raw_procedure_ipv4() {
+	#_messagePlain_probe _ssh_benchmark_download_public_source_ipv4 "$remotePortPublicIPv4"
+	_ssh "$@" "$safeTmpSSH_alt"'/cautossh'' '_ssh_benchmark_download_public_source_ipv4' '"$remotePortPublicIPv4"' '25 > /dev/null 2>&1 &
+	
+	sleep 3
+	
+	#_messagePlain_nominal '_download: public IPv4'
+	#_messagePlain_probe _proxy_direct "$remotePublicIPv4" "$remotePortPublicIPv4"
+	_proxy_direct "$remotePublicIPv4" "$remotePortPublicIPv4"
+}
+
+_ssh_benchmark_download_raw_procedure_ipv6() {
+	_messagePlain_probe _ssh_benchmark_download_public_source_ipv6 "$remotePortPublicIPv6"
+	_ssh "$@" "$safeTmpSSH_alt"'/cautossh'' '_ssh_benchmark_download_public_source_ipv6' '"$remotePortPublicIPv6"' '25 > /dev/null 2>&1 &
+	
+	sleep 3
+	
+	#_messagePlain_nominal '_download: public IPv6'
+	#_messagePlain_probe _proxy_direct "$remotePublicIPv4" "$remotePortPublicIPv6"
+	_proxy_direct "$remotePublicIPv6" "$remotePortPublicIPv6"
+}
+
+# Establishes raw tunel and transmits random binary data through it as bandwidth test.
+# DANGER: Even with many parallel streams, this technique tends to be inaccurate.
+# CAUTION: Generally, SSH connections are to be preferred for simplicity and flexiblity.
+# WARNING: ATTENTION: Considered to use relatively poor programming practices.
+# WARNING: Requires public IP address, LAN IP address, and/or forwarded ports 35500-49075 .
+# WARNING: Intended to produce end-user data. Use multiple specific IPv4 or IPv6 tests at a static address if greater reliability is needed.
+_ssh_benchmark_download_raw() {
+	_start
+	_start_safeTmp_ssh "$@"
+	
+	_messagePlain_nominal 'get: external'
+	_get_ssh_external "$@"
+	
+	mkfifo "$safeTmp"/aggregate_fifo
+	
+	export safeTmpSSH_alt="$safeTmpSSH"
+	
+	_messagePlain_nominal '_download: public IPv4: establishing links'
+	
+	local currentIteration
+	for ((currentIteration=0; currentIteration < "12"; currentIteration++))
+	do
+		"$scriptAbsoluteLocation" _ssh_benchmark_download_raw_procedure_ipv4 "$@" > "$safeTmp"/aggregate_fifo &
+		#head -c 100000000 /dev/urandom > "$safeTmp"/aggregate_fifo &
+	done
+	
+	sleep 12
+	
+	_messagePlain_nominal '_download: public IPv4: downloading'
+	dd if="$safeTmp"/aggregate_fifo of=/dev/null iflag=fullblock
+	#cat "$safeTmp"/aggregate_fifo
+	
+	sleep 2
+	
+	
+	
+	_messagePlain_nominal '_download: public IPv6: establishing links'
+	
+	local currentIteration
+	for ((currentIteration=0; currentIteration < "12"; currentIteration++))
+	do
+		"$scriptAbsoluteLocation" _ssh_benchmark_download_raw_procedure_ipv6 "$@" > "$safeTmp"/aggregate_fifo &
+		#head -c 100000000 /dev/urandom > "$safeTmp"/aggregate_fifo &
+	done
+	
+	sleep 12
+	
+	_messagePlain_nominal '_download: public IPv6: downloading'
+	dd if="$safeTmp"/aggregate_fifo of=/dev/null iflag=fullblock
+	#cat "$safeTmp"/aggregate_fifo
+	
+	sleep 2
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_iperf_raw_public_procedure() {
+	echo
+	_messagePlain_probe _ssh_benchmark_iperf_server_ipv4 "$remotePortPublicIPv4"
+	_ssh "$@" "$safeTmpSSH"'/cautossh' _ssh_benchmark_iperf_server_ipv4 "$remotePortPublicIPv4" | tr -dc 'a-zA-Z0-9.:'
+	
+	#_waitPort "$remotePublicIPv4" "$remotePortPublicIPv4"
+	sleep 3
+	
+	_messagePlain_nominal 'iperf: A: public IPv4'
+	_messagePlain_probe _ssh_benchmark_iperf_client_ipv4 "$remotePublicIPv4" "$remotePortPublicIPv4"
+	_ssh_benchmark_iperf_client_ipv4 "$remotePublicIPv4" "$remotePortPublicIPv4"
+	
+	_messagePlain_nominal 'iperf: B: public IPv4'
+	_messagePlain_probe _ssh_benchmark_iperf_client_ipv4_rev "$remotePublicIPv4" "$remotePortPublicIPv4"
+	_ssh_benchmark_iperf_client_ipv4_rev "$remotePublicIPv4" "$remotePortPublicIPv4"
+	
+	echo
+	_messagePlain_probe _ssh_benchmark_iperf_server_ipv6 "$remotePortPublicIPv6"
+	_ssh "$@" "$safeTmpSSH"'/cautossh' _ssh_benchmark_iperf_server_ipv6 "$remotePortPublicIPv6" | tr -dc 'a-zA-Z0-9.:'
+	
+	#_waitPort "$remotePublicIPv6" "$remotePortPublicIPv6"
+	sleep 3
+	
+	_messagePlain_nominal 'iperf: A: public IPv6'
+	_messagePlain_probe _ssh_benchmark_iperf_client_ipv6 "$remotePublicIPv6" "$remotePortPublicIPv6"
+	_ssh_benchmark_iperf_client_ipv6 "$remotePublicIPv6" "$remotePortPublicIPv6"
+	
+	_messagePlain_nominal 'iperf: B: public IPv6'
+	_messagePlain_probe _ssh_benchmark_iperf_client_ipv6_rev "$remotePublicIPv6" "$remotePortPublicIPv6"
+	_ssh_benchmark_iperf_client_ipv6_rev "$remotePublicIPv6" "$remotePortPublicIPv6"
+	
+	sleep 2
+}
+
+_ssh_iperf_raw_route_procedure() {
+	echo
+	_messagePlain_probe _ssh_benchmark_iperf_server_ipv4 "$remotePortRouteIPv4"
+	_ssh "$@" "$safeTmpSSH"'/cautossh' _ssh_benchmark_iperf_server_ipv4 "$remotePortRouteIPv4" | tr -dc 'a-zA-Z0-9.:'
+	
+	#_waitPort "$remoteRouteIPv4" "$remotePortRouteIPv4"
+	sleep 3
+	
+	_messagePlain_nominal 'iperf: A: route IPv4'
+	_messagePlain_probe _ssh_benchmark_iperf_client_ipv4 "$remoteRouteIPv4" "$remotePortRouteIPv4"
+	_ssh_benchmark_iperf_client_ipv4 "$remoteRouteIPv4" "$remotePortRouteIPv4"
+	
+	_messagePlain_nominal 'iperf: B: route IPv4'
+	_messagePlain_probe _ssh_benchmark_iperf_client_ipv4_rev "$remoteRouteIPv4" "$remotePortRouteIPv4"
+	_ssh_benchmark_iperf_client_ipv4_rev "$remoteRouteIPv4" "$remotePortRouteIPv4"
+	
+	echo
+	_messagePlain_probe _ssh_benchmark_iperf_server_ipv6 "$remotePortRouteIPv6"
+	_ssh "$@" "$safeTmpSSH"'/cautossh' _ssh_benchmark_iperf_server_ipv6 "$remotePortRouteIPv6" | tr -dc 'a-zA-Z0-9.:'
+	
+	#_waitPort "$remoteRouteIPv6" "$remotePortRouteIPv6"
+	sleep 3
+	
+	_messagePlain_nominal 'iperf: A: route IPv6'
+	_messagePlain_probe _ssh_benchmark_iperf_client_ipv6 "$remoteRouteIPv6" "$remotePortRouteIPv6"
+	_ssh_benchmark_iperf_client_ipv6 "$remoteRouteIPv6" "$remotePortRouteIPv6"
+	
+	_messagePlain_nominal 'iperf: B: route IPv6'
+	_messagePlain_probe _ssh_benchmark_iperf_client_ipv6_rev "$remoteRouteIPv6" "$remotePortRouteIPv6"
+	_ssh_benchmark_iperf_client_ipv6_rev "$remoteRouteIPv6" "$remotePortRouteIPv6"
+	
+	sleep 2
+}
+
+# Establishes raw connection and runs iperf across it.
+# DANGER: Not completely tested. May be inaccurate.
+# CAUTION: Generally, SSH connections are to be preferred for simplicity and flexiblity.
+# WARNING: Requires public IP address, LAN IP address, and/or forwarded ports 35500-49075 .
+# WARNING: Intended to produce end-user data. Use multiple specific IPv4 or IPv6 tests at a static address if greater reliability is needed.
+_ssh_iperf_public_raw_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	
+	_messagePlain_nominal 'get: external'
+	_get_ssh_external "$@"
+	
+	_ssh_iperf_raw_public_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+# Establishes raw connection and runs iperf across it.
+# DANGER: Not completely tested. May be inaccurate.
+# CAUTION: Generally, SSH connections are to be preferred for simplicity and flexiblity.
+# WARNING: Requires public IP address, LAN IP address, and/or forwarded ports 35500-49075 .
+# WARNING: Intended to produce end-user data. Use multiple specific IPv4 or IPv6 tests at a static address if greater reliability is needed.
+_ssh_iperf_route_raw_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	
+	_messagePlain_nominal 'get: external'
+	
+	_messagePlain_nominal 'get: external'
+	_get_ssh_external "$@"
+	
+	_ssh_iperf_raw_route_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_ping_public_procedure() {
+	_messagePlain_nominal 'ping: public: IPv4'
+	_messageCMD ping -4 -U -i 1 -c 3 "$remotePublicIPv4"
+	
+	_messagePlain_nominal 'ping: public: IPv6'
+	_messageCMD ping -6 -U -i 1 -c 3 "$remotePublicIPv6"
+}
+
+_ssh_ping_public_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	
+	_messagePlain_nominal 'get: external'
+	_get_ssh_external "$@"
+	
+	_ssh_ping_public_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_ping_public() {
+	"$scriptAbsoluteLocation" _ssh_ping_public_sequence "$@"
+}
+
+_ssh_ping_route_procedure() {
+	_messagePlain_nominal 'ping: route: IPv4'
+	_messageCMD ping -4 -U -i 1 -c 3 "$remoteRouteIPv4"
+	
+	_messagePlain_nominal 'ping: route: IPv6'
+	_messageCMD ping -6 -U -i 1 -c 3 "$remoteRouteIPv6"
+}
+
+_ssh_ping_route_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	
+	_messagePlain_nominal 'get: external'
+	_get_ssh_external "$@"
+	
+	_ssh_ping_route_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_ping_route() {
+	"$scriptAbsoluteLocation" _ssh_ping_route_sequence "$@"
+}
+
+_ssh_ping_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	
+	_messagePlain_nominal 'get: external'
+	_get_ssh_external "$@"
+	
+	_ssh_ping_public_procedure "$@"
+	_ssh_ping_route_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_ping() {
+	"$scriptAbsoluteLocation" _ssh_ping_sequence "$@"
+}
+
+_ssh_cycle() {
+	_messagePlain_nominal 'cycle: ms'
+	_stopwatch _ssh "$@" true
+}
+
+# WARNING: May be significantly inflated. Consider as a 'worst case' measurement.
+# ATTENTION: Values comparable to "$netTimeout" indicate failure.
+# PREREQUSITE: _get_ssh_relay "$@"
+_ssh_latency_net_procedure() {
+	(
+		_messagePlain_nominal 'latency: ms'
+		
+		local currentPortIn=$(_findPort)
+		local currentPortOut=$(_findPort)
+		
+		#_messagePlain_probe 'socat -4 - TCP-LISTEN:'"$currentPortOut"' > /dev/null 2>&1 &'
+		_timeout "$netTimeout" socat -4 - TCP-LISTEN:"$currentPortOut" | head -c 1 > /dev/null 2>&1 &
+		
+		#_messagePlain_probe '_ssh '"$@"' -L '"$currentPortIn"':localhost:'"$relayPortOut"' -R '"$relayPortIn"':localhost:'"$currentPortOut"' socat tcp-listen:'"$relayPortOut"' tcp:localhost:'"$relayPortIn"' &'
+		_timeout "$netTimeout" _ssh "$@" -L "$currentPortIn":localhost:"$relayPortOut" -R "$relayPortIn":localhost:"$currentPortOut" socat tcp-listen:"$relayPortOut" tcp:localhost:"$relayPortIn" &
+		
+		sleep 3
+		
+		#_messagePlain_probe 'echo -n 1 | _proxy_direct localhost '"$currentPortIn"
+		echo -n 1 | _proxy_direct localhost "$currentPortIn" > /dev/null 2>&1
+		
+		( sleep 6 ; echo -n 1 | _proxy_direct localhost "$currentPortIn" ) &
+		( sleep 9 ; echo -n 1 | _proxy_direct localhost "$currentPortIn" ) &
+		( sleep $(expr "$netTimeout" - 2) ; echo -n 1 | _proxy_direct localhost "$currentPortIn" ) &
+		
+		#_messagePlain_probe wait %1
+		_stopwatch wait %1
+	)
+}
+
+
+# WARNING: May not be an exact measurement, especially at ranges near 3second . Expected error is less than approximately plus cycle time.
+#https://serverfault.com/questions/807910/measure-total-latency-of-ssh-session
+#https://www.cyberciti.biz/faq/linux-unix-read-one-character-atatime-while-loop/
+_ssh_latency_character_procedure() {
+	_messagePlain_nominal 'latency: ms'
+	
+	sleep 90 < "$safeTmp"/down &
+	#sleep 90 > "$safeTmp"/up &
+	
+	(
+	
+	sleep 3
+	
+	cat "$safeTmp"/down > /dev/null 2>&1 &
+	
+	echo -n 1 > "$safeTmp"/up
+	_stopwatch wait
+	
+	) &
+	
+	cat "$safeTmp"/up | _ssh "$@" head -c 1 > "$safeTmp"/down
+	
+	return 0
+}
+
+# WARNING: Depends on python resources.
+_ssh_latency_python_procedure() {
+	_messagePlain_nominal 'latency: ms'
+	
+	python -m timeit -n 25 -s 'import subprocess; p = subprocess.Popen(["'"$scriptAbsoluteLocation"'", "_ssh", "'"$@"'", "cat"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0); p.stdin.write(b"z"); assert p.stdout.read(1) == b"z"' 'p.stdin.write(b"z"); assert p.stdout.read(1) == b"z"'
+}
+
+_ssh_latency_procedure() {
+	_ssh_latency_python_procedure "$@"
+}
+
+_ssh_latency_sequence() {
+	_start
+	_start_safeTmp_ssh "$@"
+	_prepare_ssh_fifo
+	
+	#_messagePlain_nominal 'get: external'
+	#_get_ssh_external "$@"
+	#_messagePlain_nominal 'get: relay'
+	#_get_ssh_relay "$@"
+	
+	#_ssh_latency_net_procedure "$@"
+	
+	#_ssh_latency_character_procedure "$@"
+	
+	_ssh_latency_python_procedure "$@"
+	
+	_stop_safeTmp_ssh "$@"
+	_stop
+}
+
+_ssh_latency() {
+	"$scriptAbsoluteLocation" _ssh_latency_sequence "$@"
+}
+
+
+# Checks common ports.
+_ssh_common_internal_procedure() {
+	_messagePlain_nominal 'nmap: IPv4'
+	ssh "$@" nmap localhost -p 22,80,443
+	
+	_messagePlain_nominal 'nmap: IPv6'
+	ssh "$@" nmap -6 localhost -p 22,80,443
+}
+
+
+_ssh_common_external_public_procedure() {
+	_messagePlain_nominal 'nmap: public IPv4'
+	nmap "$remotePublicIPv4" -p 22,80,443
+	
+	_messagePlain_nominal 'nmap: public IPv6'
+	nmap -6 "$remotePublicIPv6" localhost -p 22,80,443
+}
+
+_ssh_common_external_route_procedure() {
+	_messagePlain_nominal 'nmap: route IPv4'
+	nmap "$remoteRouteIPv4" -p 22,80,443
+	
+	_messagePlain_nominal 'nmap: route IPv6'
+	nmap -6 "$remoteRouteIPv6" -p 22,80,443
+}
+
+
+
+_testAutoSSH() {
+	if ! _wantGetDep /usr/bin/autossh
+	then
+		echo 'warn: autossh not available'
+		return 1
+	fi
+}
+
+# ATTENTION: Respects "$LOCALLISTENPORT". May be repurposed for services other than SSH (ie. HTTPS).
+#"$1" == "$gatewayName"
+#"$2" == "$reversePort"
+_autossh_external() {
+	_overrideReversePorts
+	
+	#Workaround. SSH will call CoreAutoSSH recursively as the various "proxy" directives are called. These processes should be managed by SSH, and not recorded in the daemon PID list file, as daemon management scripts may be confused by these many processes quitting long before daemon failure.
+	export isDaemon=
+	
+	local currentLocalSSHport
+	currentLocalSSHport="$LOCALLISTENPORT"
+	[[ "$currentLocalSSHport" == "" ]] && currentLocalSSHport="$LOCALSSHPORT"
+	[[ "$currentLocalSSHport" == "" ]] && currentLocalSSHport=22
+	
+	local autosshPID
+	
+	if [[ "$autosshPublic" == "true" ]]
+	then
+		/usr/bin/autossh -M 0 -F "$sshDir"/config -R \*:"$2":localhost:"$currentLocalSSHport" "$1" -N &
+		autosshPID="$!"
+	fi
+	if [[ "$autosshPublic" != "true" ]]
+	then
+		/usr/bin/autossh -M 0 -F "$sshDir"/config -R "$2":localhost:"$currentLocalSSHport" "$1" -N &
+		autosshPID="$!"
+	fi
+	
+	#echo "$autosshPID" | _prependDaemonPID
+	
+	#_pauseForProcess "$autosshPID"
+	wait "$autosshPID"
+}
+
+# WARNING: Accepts "matchingReversePorts". Must be set with current values by "_get_reversePorts" or similar!
+#Searches for an unused port in the reversePorts list, binds reverse proxy to it.
+#Until "_proxySSH_reverse" can differentiate "known_hosts" at remote ports, there is little point in performing a check for open ports at the remote end, since these would be used automatically. Thus, "_autossh_direct" is recommended for now.
+#"$1" == "$gatewayName"
+_autossh_find() {
+	local currentReversePort
+	for currentReversePort in "${matchingReversePorts[@]}"
+	do
+		if ! _checkRemoteSSH "$1" "$currentReversePort"
+		then
+			_autossh_external "$1" "$currentReversePort"
+			return 0
+		fi
+	done
+	return 1
+}
+
+# WARNING: Accepts "matchingReversePorts". Must be set with current values by "_get_reversePorts" or similar!
+#"$1" == "$gatewayName"
+_autossh_direct() {
+	_overrideReversePorts
+	_autossh_external "$1" "${matchingReversePorts[0]}"
+}
+
+#"$1" == "$gatewayName"
+_autossh_ready() {
+	local sshExitStatus
+	
+	_ssh "$1" true
+	sshExitStatus="$?"
+	if [[ "$sshExitStatus" != "255" ]]
+	then
+		_autossh_direct "$1"
+		_stop
+	fi
+}
+
+#May be overridden by "ops" if multiple gateways are required.
+#Not recommended. If multiple gateways are required, it is better to launch autossh daemons for each of them simultaneously. See "_ssh_autoreverse".
+_autossh_list_sequence() {
+	_start
+	
+	_autossh_ready "$1"
+	
+	#_autossh_ready firstGateway
+	#_autossh_ready secondGateway
+	
+	_stop
+}
+
+_autossh_list() {
+	"$scriptAbsoluteLocation" _autossh_list_sequence "$@"
+}
+
+#May be overridden by "ops" to point to direct, find, or list.
+_autossh_entry() {
+	_overrideReversePorts
+	[[ "$1" != "" ]] && export gatewayName="$1"
+	
+	_autossh_direct "$gatewayName"
+	#_autossh_find "$gatewayName"
+	#_autossh_list "$gatewayName"
+}
+
+_autossh_launch() {
+	_overrideReversePorts
+	
+	_start
+	
+	export sshBase="$safeTmp"/.ssh
+	_prepare_ssh
+	
+	#_setup_ssh
+	_setup_ssh_operations
+	
+	export sshInContainment="true"
+	
+	while true
+	do
+		"$scriptAbsoluteLocation" _autossh_entry "$@"
+		
+		sleep 3
+		
+		if [[ "$EMBEDDED" == "true" ]]
+		then
+			sleep 270
+		fi
+		
+	done
+	
+	_stop
+}
+
+# WARNING Not all autossh functions have been fully tested yet. However, previous versions of this system are known to be much more robust than autossh defaults.
+_autossh() {
+	mkdir -p "$scriptLocal"/ssh/log
+	local logID
+	logID=$(_uid)
+	_cmdDaemon "$scriptAbsoluteLocation" _autossh_launch "$@" >> "$scriptLocal"/ssh/log/_autossh."$logID".log 2>&1
+}
+
+# WARNING: Accepts "matchingReversePorts". Must be set with current values by "_get_reversePorts" or similar!
+_reversessh() {
+	local currentLocalSSHport
+	currentLocalSSHport="$LOCALLISTENPORT"
+	[[ "$currentLocalSSHport" == "" ]] && currentLocalSSHport="$LOCALSSHPORT"
+	[[ "$currentLocalSSHport" == "" ]] && currentLocalSSHport=22
+	
+	_ssh -R "${matchingReversePorts[0]}":localhost:"$currentLocalSSHport" "$gatewayName" -N "$@"
+}
+
+_overrideReversePorts() {
+	[[ "$overrideLOCALLISTENPORT" != "" ]] && export LOCALLISTENPORT="$overrideLOCALLISTENPORT"
+	[[ "$overrideMatchingReversePort" != "" ]] && export matchingReversePorts=( "$overrideMatchingReversePort" )
+}
+
 
 _vncserver_operations() {
 	_messagePlain_nominal 'init: _vncserver_operations'
@@ -2867,545 +5004,223 @@ _vncserver_operations() {
 	_messagePlain_bad 'missing: vncserver || Xvnc'
 	
 	return 1
-}
+} 
 
-_vncserver_sequence() {
-	_messageNormal '_vncserver_sequence: Start'
-	_start
+_vncviewer_operations() {
+	_messagePlain_nominal 'init: _vncviewer_operations'
 	
-	_messageNormal '_vncserver_sequence: Setting vncpasswd .'
-	cat - > "$vncPasswdFile".pln
-	! _vncpasswd && _messageError 'FAIL: vncpasswd' && _stop 1
+	local msw_vncPasswdFile
+	msw_vncPasswdFile=$(_slashBackToForward "$vncPasswdFile")
+	msw_vncPasswdFile='C:\cygwin64'"$vncPasswdFile"
 	
-	_messageNormal '_x11vnc_sequence: Operations .'
-	! _vncserver_operations && _messageError 'FAIL: vncserver' && _stop 1
+	local current_vncPasswdFile
+	current_vncPasswdFile="$vncPasswdFile"
 	
-	_stop
-}
-
-#Password must be given on standard input. Environment variables "$vncPort", "$vncPIDfile", must be set. Environment variables "$desktopEnvironmentGeometry", "$desktopEnvironmentLaunch", may be forced.
-_vncserver() {
-	"$scriptAbsoluteLocation" _vncserver_sequence "$@"
-}
-
-#Environment variable "$vncPIDfile", must be set.
-_vncserver_terminate() {
+	[[ "$override_cygwin_vncviewer" == 'true' ]] && type '/cygdrive/c/Program Files/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1 && current_vncPasswdFile="$msw_vncPasswdFile"
+	[[ "$override_cygwin_vncviewer" == 'true' ]] && type '/cygdrive/c/Program Files (x86)/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1 && current_vncPasswdFile="$msw_vncPasswdFile"
 	
-	# WARNING: For now, this does not always work with TigerVNC.
-	if [[ -e "$vncPIDfile" ]] && [[ -s "$vncPIDfile" ]]
+	
+	#Typically set in '~/.bashrc' for *unusual* machines which have problems using vncviewer under X11.
+	#https://steamcommunity.com/app/382110/discussions/0/1741101364304281184/
+	if [[ "$vncviewer_manual" == 'true' ]]
 	then
-		_messagePlain_good 'found: usable "$vncPIDfile"'
+		_messagePlain_good 'assume: vncviewer (TigerVNC)'
 		
-		pkill -P $(cat "$vncPIDfile")
-		kill $(cat "$vncPIDfile")
-		#sleep 1
-		#kill -KILL $(cat "$vncPIDfile")
-		rm "$vncPIDfile"
+		[[ "$vncviewer_startFull" == "true" ]] && vncviewerArgs+=(-FullScreen)
 		
-		pgrep Xvnc && _messagePlain_warn 'found: Xvnc process'
-		pgrep Xtightvnc && _messagePlain_warn 'found: Xtightvnc process'
-		pgrep Xtigervnc && _messagePlain_warn 'found: Xtigervnc process'
+		mkdir -p "$HOME"/usrcmd
 		
-		return 0
-	fi
-	
-	_messagePlain_bad 'missing: usable "$vncPIDfile'
-	_messagePlain_bad 'terminate: Xvnc, Xtightvnc, Xtigervnc'
-	
-	pkill Xvnc
-	pkill Xtightvnc
-	pkill Xtigervnc
-	rm "$vncPIDfile"
-	
-	return 1
-}
-
-_vnc_sequence() {
-	_messageNormal '_vnc_sequence: Start'
-	_start
-	_start_safeTmp_ssh "$@"
-	_prepare_vnc
-	
-	_messageNormal '_vnc_sequence: Launch: _x11vnc'
-	
-	# TODO WARNING Terminal echo (ie. "stty echo") lockup errors are possible as ssh is backgrounded without "-f".
-	cat "$vncPasswdFile".pln | _vnc_ssh -L "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' '"$safeTmpSSH"/cautossh' _x11vnc' &
-	
-	_waitPort localhost "$vncPort"
-	
-	_messageNormal '_vnc_sequence: Ready: _waitPort localhost vncport= '"$vncPort"
-	
-	#VNC service may not always be ready when port is up.
-	
-	sleep 0.8
-	if ! _checkPort localhost "$vncPort"
-	then
-		stty echo > /dev/null 2>&1
-		_stop_safeTmp_ssh "$@"
-		_stop
-	fi
-	_messageNormal '_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
-	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' destination_DISPLAY='"$DISPLAY"' destination_AUTH='"$XAUTHORITY"' '"$scriptAbsoluteLocation"' _vncviewer'
-	
-	sleep 3
-	if ! _checkPort localhost "$vncPort"
-	then
-		stty echo > /dev/null 2>&1
-		_stop_safeTmp_ssh "$@"
-		_stop
-	fi
-	_messageNormal '_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
-	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' destination_DISPLAY='"$DISPLAY"' destination_AUTH='"$XAUTHORITY"' '"$scriptAbsoluteLocation"' _vncviewer'
-	
-	sleep 9
-	if ! _checkPort localhost "$vncPort"
-	then
-		stty echo > /dev/null 2>&1
-		_stop_safeTmp_ssh "$@"
-		_stop
-	fi
-	_messageNormal '_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
-	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' destination_DISPLAY='"$DISPLAY"' destination_AUTH='"$XAUTHORITY"' '"$scriptAbsoluteLocation"' _vncviewer'
-	
-	
-	_messageNormal '_vnc_sequence: Done: final attempt: _vncviewer'
-	
-	_messageNormal '_vnc_sequence: Stop'
-	stty echo > /dev/null 2>&1
-	_stop_safeTmp_ssh "$@"
-	_stop
-}
-
-_vnc() {
-	"$scriptAbsoluteLocation" _vnc_sequence "$@"
-}
-
-_push_vnc_sequence() {
-	_messageNormal '_push_vnc_sequence: Start'
-	_start
-	_start_safeTmp_ssh "$@"
-	_prepare_vnc
-	
-	_messageNormal '_push_vnc_sequence: Launch: _x11vnc'
-	
-	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' '"$scriptAbsoluteLocation"' _x11vnc' &
-	#-noxrecord -noxfixes -noxdamage
-	
-	_waitPort localhost "$vncPort"
-	
-	_messageNormal '_push_vnc_sequence: Ready: _waitPort localhost vncport= '"$vncPort"
-	
-	#VNC service may not always be ready when port is up.
-	
-	sleep 0.8
-	if ! _checkPort localhost "$vncPort"
-	then
-		stty echo > /dev/null 2>&1
-		_stop_safeTmp_ssh "$@"
-		_stop
-	fi
-	_messageNormal '_push_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
-	cat "$vncPasswdFile".pln | _vnc_ssh -R "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' '"$safeTmpSSH"/cautossh' _vncviewer'
-	
-	sleep 3
-	if ! _checkPort localhost "$vncPort"
-	then
-		stty echo > /dev/null 2>&1
-		_stop_safeTmp_ssh "$@"
-		_stop
-	fi
-	_messageNormal '_push_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
-	cat "$vncPasswdFile".pln | _vnc_ssh -R "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' '"$safeTmpSSH"/cautossh' _vncviewer'
-	
-	sleep 9
-	if ! _checkPort localhost "$vncPort"
-	then
-		stty echo > /dev/null 2>&1
-		_stop_safeTmp_ssh "$@"
-		_stop
-	fi
-	_messageNormal '_push_vnc_sequence: Ready: sleep, _checkPort. Launch: _vncviewer'
-	cat "$vncPasswdFile".pln | _vnc_ssh -R "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' '"$safeTmpSSH"/cautossh' _vncviewer'
-	
-	_messageNormal '_push_vnc_sequence: Done: final attempt: _vncviewer'
-	
-	_messageNormal '_push_vnc_sequence: Stop'
-	stty echo > /dev/null 2>&1
-	_stop_safeTmp_ssh "$@"
-	_stop 1
-}
-
-_push_vnc() {
-	"$scriptAbsoluteLocation" _push_vnc_sequence "$@"
-}
-
-_desktop_sequence() {
-	_messageNormal '_desktop_sequence: Start'
-	_start
-	_start_safeTmp_ssh "$@"
-	_prepare_vnc
-	
-	_messageNormal '_vnc_sequence: Launch: _vncserver'
-	# TODO WARNING Terminal echo (ie. "stty echo") lockup errors are possible as ssh is backgrounded without "-f".
-	cat "$vncPasswdFile".pln | _vnc_ssh -L "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' vncPIDfile='"$vncPIDfile"' desktopEnvironmentGeometry='"$desktopEnvironmentGeometry"' desktopEnvironmentLaunch='"$desktopEnvironmentLaunch"' '"$safeTmpSSH"/cautossh' _vncserver' &
-	
-	
-	_waitPort localhost "$vncPort"
-	sleep 0.8 #VNC service may not always be ready when port is up.
-	
-	_messageNormal '_vnc_sequence: Ready: _waitPort. Launch: _vncviewer'
-	
-	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' destination_DISPLAY='"$DISPLAY"' destination_AUTH='"$XAUTHORITY"' '"$scriptAbsoluteLocation"' _vncviewer'
-	stty echo > /dev/null 2>&1
-	
-	_messageNormal '_vnc_sequence: Terminate: _vncserver_terminate'
-	
-	_vnc_ssh "$@" 'env vncPIDfile='"$vncPIDfile"' '"$safeTmpSSH"/cautossh' _vncserver_terminate'
-	
-	_messageNormal '_desktop_sequence: Stop'
-	_stop_safeTmp_ssh "$@"
-	_stop
-}
-
-#Launches VNC server and client, with up to nine nonpersistent desktop environments.
-_desktop() {
-	"$scriptAbsoluteLocation" _desktop_sequence "$@"
-}
-
-_push_desktop_sequence() {
-	_messageNormal '_push_desktop_sequence: Start'
-	_start
-	_start_safeTmp_ssh "$@"
-	_prepare_vnc
-	
-	_messageNormal '_push_desktop_sequence: Launch: _vncserver'
-	cat "$vncPasswdFile".pln | bash -c 'env vncPort='"$vncPort"' vncPIDfile='"$vncPIDfile_local"' desktopEnvironmentGeometry='"$desktopEnvironmentGeometry"' desktopEnvironmentLaunch='"$desktopEnvironmentLaunch"' '"$scriptAbsoluteLocation"' _vncserver' &
-	
-	
-	_waitPort localhost "$vncPort"
-	sleep 0.8 #VNC service may not always be ready when port is up.
-	
-	_messageNormal '_push_desktop_sequence: Ready: _waitPort. Launch: _vncviewer'
-	
-	cat "$vncPasswdFile".pln | _vnc_ssh -R "$vncPort":localhost:"$vncPort" "$@" 'env vncPort='"$vncPort"' destination_DISPLAY='""' '"$safeTmpSSH"/cautossh' _vncviewer'
-	stty echo > /dev/null 2>&1
-	
-	_messageNormal '_push_desktop_sequence: Terminate: _vncserver_terminate'
-	
-	bash -c 'env vncPIDfile='"$vncPIDfile_local"' '"$scriptAbsoluteLocation"' _vncserver_terminate'
-	
-	_messageNormal '_desktop_sequence: Stop'
-	_stop_safeTmp_ssh "$@"
-	_stop
-}
-
-_push_desktop() {
-	"$scriptAbsoluteLocation" _push_desktop_sequence "$@"
-}
-
-#Builtin version of ssh-copy-id.
-_ssh_copy_id() {
-	_start
-	
-	"$scriptAbsoluteLocation" _ssh "$@" 'mkdir -p "$HOME"/.ssh'
-	cat "$scriptLocal"/ssh/id_rsa.pub | "$scriptAbsoluteLocation" _ssh "$@" 'cat - >> "$HOME"/.ssh/authorized_keys'
-	
-	_stop
-}
-alias _ssh-copy-id=_ssh_copy_id
-
-#"$1" == "key_name"
-#"$2" == "local_subdirectory" (optional)
-_setup_ssh_copyKey() {
-	local sshKeyName
-	local sshKeyLocalSubdirectory
-	
-	sshKeyName="$1"
-	[[ "$2" != "" ]] && sshKeyLocalSubdirectory="$2"/
-	
-	if [[ -e "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName" ]]
-	then
-		chmod 600 "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName"
-		chmod 600 "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName".pub > /dev/null 2>&1
+		local usrcmdUID
+		usrcmdUID=$(_uid)
 		
-		cp -n "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName" "$sshLocalSSH"/"$sshKeyName"
-		cp -n "$scriptLocal"/ssh/"$sshKeyLocalSubdirectory""$sshKeyName".pub "$sshLocalSSH"/"$sshKeyName".pub > /dev/null 2>&1
+		_safeEcho_newline 'vncviewer -DotWhenNoCursor -passwd '\""$current_vncPasswdFile"\"' localhost:'"$vncPort"' '"${vncviewerArgs[@]}"' '"$@" > "$HOME"/usrcmd/"$usrcmdUID"
+		_safeEcho_newline 'vncviewer -DotWhenNoCursor -passwd '\""$current_vncPasswdFile"\"' localhost:'"$vncPort"' '"${vncviewerArgs[@]}"' '"$@" > "$HOME"/usrcmd/"$usrcmdUID".sh
+		chmod u+x "$HOME"/usrcmd/"$usrcmdUID".sh
 		
-		return 0
-	fi
-	
-	if [[ -e "$scriptLocal"/ssh/"$sshKeyName" ]]
-	then
-		chmod 600 "$scriptLocal"/ssh/"$sshKeyName"
-		chmod 600 "$scriptLocal"/ssh/"$sshKeyName".pub > /dev/null 2>&1
-		
-		cp -n "$scriptLocal"/ssh/"$sshKeyName" "$sshLocalSSH"/"$sshKeyName"
-		cp -n "$scriptLocal"/ssh/"$sshKeyName".pub "$sshLocalSSH"/"$sshKeyName".pub > /dev/null 2>&1
-		
-		return 0
-	fi
-	
-	return 1
-}
-
-#Overload with "ops".
-_setup_ssh_extra() {
-	true
-}
-
-_setup_ssh_merge_known_hosts() {
-	[[ ! -e "$scriptLocal"/ssh/known_hosts ]] && echo > "$scriptLocal"/ssh/known_hosts
-	[[ ! -e "$sshLocalSSH"/known_hosts ]] && echo > "$sshLocalSSH"/known_hosts
-	sort "$scriptLocal"/ssh/known_hosts "$sshLocalSSH"/known_hosts | uniq > "$safeTmp"/known_hosts_uniq
-	_cpDiff "$safeTmp"/known_hosts_uniq "$scriptLocal"/ssh/known_hosts
-	
-	_cpDiff "$scriptLocal"/ssh/known_hosts "$sshLocalSSH"/known_hosts
-}
-
-_setup_ssh_operations() {
-	_prepare_ssh
-	
-	mkdir -p "$scriptLocal"/ssh
-	
-	! [[ -e "$sshBase" ]] && mkdir -p "$sshBase" && chmod 700 "$sshBase"
-	! [[ -e "$sshBase"/"$ubiquitiousBashID" ]] && mkdir -p "$sshBase"/"$ubiquitiousBashID" && chmod 700 "$sshBase"/"$ubiquitiousBashID"
-	! [[ -e "$sshDir" ]] && mkdir -p "$sshDir" && chmod 700 "$sshDir"
-	! [[ -e "$sshLocal" ]] && mkdir -p "$sshLocal" && chmod 700 "$sshLocal"
-	! [[ -e "$sshLocalSSH" ]] && mkdir -p "$sshLocalSSH" && chmod 700 "$sshLocalSSH"
-	
-	#! grep "$ubiquitiousBashID" "$sshBase"/config > /dev/null 2>&1 && echo 'Include "'"$sshUbiquitous"'/config"' >> "$sshBase"/config
-	
-	#Prepend include directive. Mitigates the risk of falling under an existing config directive (eg. Host/Match). Carries the relatively insignificant risk of a non-atomic operation.
-	if ! grep "$ubiquitiousBashID" "$sshBase"/config > /dev/null 2>&1 && [[ ! -e "$sshBase"/config.tmp ]]
-	then
-		echo -n >> "$sshBase"/config
-		echo 'Include "'"$sshUbiquitous"'/config"' >> "$sshBase"/config.tmp
-		echo >> "$sshBase"/config.tmp
-		cat "$sshBase"/config >> "$sshBase"/config.tmp
-		mv "$sshBase"/config.tmp "$sshBase"/config
-		
-	fi
-	
-	! grep "$netName" "$sshUbiquitous"/config > /dev/null 2>&1 && echo 'Include "'"$sshDir"'/config"' >> "$sshBase"/config >> "$sshUbiquitous"/config
-	
-	if [[ "$keepKeys_SSH" == "false" ]]
-	then
-		rm -f "$scriptLocal"/ssh/id_rsa >/dev/null 2>&1
-		rm -f "$scriptLocal"/ssh/id_rsa.pub >/dev/null 2>&1
-		rm -f "$sshDir"/id_rsa >/dev/null 2>&1
-		rm -f "$sshDir"/id_rsa.pub >/dev/null 2>&1
-		rm -f "$sshLocalSSH"/id_rsa >/dev/null 2>&1
-		rm -f "$sshLocalSSH"/id_rsa.pub >/dev/null 2>&1
-	fi
-	
-	if ! [[ -e "$scriptLocal"/ssh/id_rsa ]] && ! [[ -e "$sshLocalSSH"/id_rsa ]]
-	then
-		ssh-keygen -b 4096 -t rsa -N "" -f "$scriptLocal"/ssh/id_rsa
-	fi
-	
-	_here_ssh_config >> "$safeTmp"/config
-	_cpDiff "$safeTmp"/config "$sshDir"/config
-	
-	_setup_ssh_copyKey id_rsa
-	
-	_setup_ssh_merge_known_hosts
-	
-	_cpDiff "$scriptAbsoluteLocation" "$sshDir"/cautossh
-	
-	# TODO Replace with a less oversimplified destination directory structure.
-	#Concatenates all "ops" directives into one file to allow a single "cpDiff" operation.
-	[[ -e "$objectDir"/ops ]] && cat "$objectDir"/ops >> "$safeTmp"/opsAll
-	[[ -e "$scriptLocal"/ops ]] && cat "$scriptLocal"/ops >> "$safeTmp"/opsAll
-	[[ -e "$scriptLocal"/ssh/ops ]] && cat "$scriptLocal"/ssh/ops >> "$safeTmp"/opsAll
-	
-	[[ -e "$objectDir"/opsauto ]] && cat "$objectDir"/opsauto >> "$safeTmp"/opsAll
-	[[ -e "$scriptLocal"/opsauto ]] && cat "$scriptLocal"/opsauto >> "$safeTmp"/opsAll
-	[[ -e "$scriptLocal"/ssh/opsauto ]] && cat "$scriptLocal"/ssh/opsauto >> "$safeTmp"/opsAll
-	
-	
-	_cpDiff "$safeTmp"/opsAll "$sshLocalSSH"/ops
-	
-	_setup_ssh_extra
-}
-
-_setup_ssh_sequence() {
-	_start
-	
-	_setup_ssh_operations
-	
-	_stop
-}
-
-_setup_ssh() {
-	"$scriptAbsoluteLocation" _setup_ssh_sequence "$@"
-}
-
-_setup_ssh_commands() {
-	_find_setupCommands -name '_ssh' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	_find_setupCommands -name '_rsync' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	
-	_find_setupCommands -name '_sshfs' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	
-	_find_setupCommands -name '_web' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	
-	_find_setupCommands -name '_backup' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	
-	_find_setupCommands -name '_fs' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	
-	_find_setupCommands -name '_vnc' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	_find_setupCommands -name '_push_vnc' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	_find_setupCommands -name '_desktop' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	_find_setupCommands -name '_push_desktop' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	
-	_find_setupCommands -name '_wake' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
-	
-	_find_setupCommands -name '_meta' -exec "$scriptAbsoluteLocation" _setupCommand_meta {} \;
-}
-
-_package_cautossh() {
-	#cp -a "$scriptAbsoluteFolder"/_index "$safeTmp"/package
-	
-	#https://stackoverflow.com/questions/4585929/how-to-use-cp-command-to-exclude-a-specific-directory
-	#find "$scriptAbsoluteFolder"/_index -type f -not -path '*_arc*' -exec cp -d --preserve=all {} "$safeTmp"'/package/'{} \;
-	
-	rsync -av --progress --exclude "_arc" "$scriptAbsoluteFolder"/_index/ "$safeTmp"/package/_index/
-	
-	cp -a "$scriptAbsoluteFolder"/_local/ssh "$safeTmp"/package/
-	cp -a "$scriptAbsoluteFolder"/_local/tor "$safeTmp"/package/
-}
-
-#May be overridden by "ops" if multiple gateways are required.
-_ssh_autoreverse() {
-	_torServer_SSH
-	_autossh
-	
-	#_autossh firstGateway
-	#_autossh secondGateway
-}
-
-_testAutoSSH() {
-	if ! _wantGetDep autossh
-	then
-		echo 'warn: autossh not available'
-		return 1
-	fi
-}
-
-#"$1" == "$gatewayName"
-#"$2" == "$reversePort"
-_autossh_external() {
-	#Workaround. SSH will call CoreAutoSSH recursively as the various "proxy" directives are called. These processes should be managed by SSH, and not recorded in the daemon PID list file, as daemon management scripts may be confused by these many processes quitting long before daemon failure.
-	export isDaemon=
-	
-	local autosshPID
-	/usr/bin/autossh -M 0 -F "$sshDir"/config -R "$2":localhost:22 "$1" -N &
-	autosshPID="$!"
-	
-	#echo "$autosshPID" | _prependDaemonPID
-	
-	#_pauseForProcess "$autosshPID"
-	wait "$autosshPID"
-}
-
-#Searches for an unused port in the reversePorts list, binds reverse proxy to it.
-#Until "_proxySSH_reverse" can differentiate "known_hosts" at remote ports, there is little point in performing a check for open ports at the remote end, since these would be used automatically. Thus, "_autossh_direct" is recommended for now.
-#"$1" == "$gatewayName"
-_autossh_find() {
-	local currentReversePort
-	for currentReversePort in "${reversePorts[@]}"
-	do
-		if ! _checkRemoteSSH "$1" "$currentReversePort"
+		if type '/cygdrive/c/Program Files/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1
 		then
-			_autossh_external "$1" "$currentReversePort"
-			return 0
-		fi
-	done
-	return 1
-}
-
-#"$1" == "$gatewayName"
-_autossh_direct() {
-	_autossh_external "$1" "${reversePorts[0]}"
-}
-
-#"$1" == "$gatewayName"
-_autossh_ready() {
-	local sshExitStatus
-	
-	_ssh "$1" true
-	sshExitStatus="$?"
-	if [[ "$sshExitStatus" != "255" ]]
-	then
-		_autossh_direct "$1"
-		_stop
-	fi
-}
-
-#May be overridden by "ops" if multiple gateways are required.
-#Not recommended. If multiple gateways are required, it is better to launch autossh daemons for each of them simultaneously. See "_ssh_autoreverse".
-_autossh_list_sequence() {
-	_start
-	
-	_autossh_ready "$1"
-	
-	#_autossh_ready firstGateway
-	#_autossh_ready secondGateway
-	
-	_stop
-}
-
-_autossh_list() {
-	"$scriptAbsoluteLocation" _autossh_list_sequence "$@"
-}
-
-#May be overridden by "ops" to point to direct, find, or list.
-_autossh_entry() {
-	[[ "$1" != "" ]] && export gatewayName="$1"
-	
-	_autossh_direct "$gatewayName"
-	#_autossh_find "$gatewayName"
-	#_autossh_list "$gatewayName"
-}
-
-_autossh_launch() {
-	_start
-	
-	export sshBase="$safeTmp"/.ssh
-	_prepare_ssh
-	
-	#_setup_ssh
-	_setup_ssh_operations
-	
-	export sshInContainment="true"
-	
-	while true
-	do
-		"$scriptAbsoluteLocation" _autossh_entry "$@"
-		
-		sleep 30
-		
-		if [[ "$EMBEDDED" == "true" ]]
-		then
-			sleep 270
+			_safeEcho_newline '"C:\Program Files\TigerVNC\vncviewer.exe"'' -DotWhenNoCursor -passwd '\""$msw_vncPasswdFile"\"' localhost:'"$vncPort"' '"${vncviewerArgs[@]}"' '"$@" > "$HOME"/usrcmd/"$usrcmdUID"_x64.bat
+			chmod u+x "$HOME"/usrcmd/"$usrcmdUID"_x64.bat
 		fi
 		
-	done
+		if type '/cygdrive/c/Program Files (x86)/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1
+		then
+			_safeEcho_newline '"C:\Program Files (x86)\TigerVNC\vncviewer.exe"'' -DotWhenNoCursor -passwd '\""$msw_vncPasswdFile"\"' localhost:'"$vncPort"' '"${vncviewerArgs[@]}"' '"$@" > "$HOME"/usrcmd/"$usrcmdUID"_x86.bat
+			chmod u+x "$HOME"/usrcmd/"$usrcmdUID"_x86.bat
+		fi
+		
+		_messagePlain_request 'request: manual launch: vncviewer: time 120s: directives:' "$HOME"/usrcmd/"$usrcmdUID"
+		
+		_messagePlain_nominal 'wait...'
+		
+		# WARNING: Relies on VNC server replying "RFB" to TCP connections.
+		#while _checkPort localhost "$vncPort"
+		while echo -n | sleep 13 | _timeout 6 socat - TCP:localhost:"$vncPort",connect-timeout="$netTimeout" 2> /dev/null | grep RFB >/dev/null 2>&1
+		do
+			sleep 6
+		done
+		sleep 3
+		
+		rm -f "$HOME"/usrcmd/"$usrcmdUID" > /dev/null 2>&1
+		rm -f "$HOME"/usrcmd/"$usrcmdUID".sh > /dev/null 2>&1
+		rm -f "$HOME"/usrcmd/"$usrcmdUID"_x86.bat > /dev/null 2>&1
+		rm -f "$HOME"/usrcmd/"$usrcmdUID"_x64.bat > /dev/null 2>&1
+		
+		return 0
+	fi
 	
-	_stop
+	_messagePlain_nominal 'Detecting and launching vncviewer.'
+	
+	#Cygwin, Overriden to Native TigerVNC
+	if [[ "$override_cygwin_vncviewer" == 'true' ]] && (( type '/cygdrive/c/Program Files/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1 ) || ( type '/cygdrive/c/Program Files (x86)/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1 ))
+	then
+		_messagePlain_good 'found: vncviewer (MSW)'
+		
+		_messagePlain_good 'assume: vncviewer (TigerVNC)'
+		
+		_messagePlain_probe '_vncviewer_operations'
+		
+		[[ "$vncviewer_startFull" == "true" ]] && vncviewerArgs+=(-FullScreen)
+		
+		# ATTENTION: Uncomment to log debug output from MSW vncviewer.
+		
+		#_messagePlain_probe  -----
+		#_messagePlain_probe '"${vncviewerArgs[@]}"'
+		#_safeEcho "${vncviewerArgs[@]}"
+		#_messagePlain_probe -----
+		#_messagePlain_probe '"$@"'
+		#_safeEcho "$@"
+		#_messagePlain_probe -----
+		
+		#tmux new-window bash -c '"/cygdrive/c/Program Files (x86)/TigerVNC/vncviewer.exe" -DotWhenNoCursor -passwd "'$current_vncPasswdFile'" localhost:"'$vncPort'" > ~/.sshtmp/vncerr 2>&1'
+		
+		if ! vncviewer -DotWhenNoCursor -passwd "$current_vncPasswdFile" localhost:"$vncPort" "${vncviewerArgs[@]}" "$@"
+		then
+			_messagePlain_bad 'fail: vncviewer'
+			stty echo > /dev/null 2>&1
+			return 1
+		fi
+		
+		# WARNING: Relies on VNC server replying "RFB" to TCP connections.
+		#while _checkPort localhost "$vncPort"
+		while echo -n | sleep 13 | _timeout 6 socat - TCP:localhost:"$vncPort",connect-timeout="$netTimeout" 2> /dev/null | grep RFB >/dev/null 2>&1
+		do
+			sleep 6
+		done
+		sleep 3
+		
+		
+		stty echo > /dev/null 2>&1
+		return 0
+	fi
+	
+	_messagePlain_nominal 'Searching for X11 display.'
+	! _detect_x11 && _messagePlain_warn 'fail: _detect_x11'
+	
+	export DISPLAY="$destination_DISPLAY"
+	export XAUTHORITY="$destination_AUTH"
+	_report_detect_x11
+	
+	_messagePlain_nominal 'Detecting and launching vncviewer.'
+	
+	#TigerVNC
+	if vncviewer --help 2>&1 | grep 'PasswordFile   \- Password file for VNC authentication (default\=)' >/dev/null 2>&1
+	then
+		_messagePlain_good 'found: vncviewer (TigerVNC)'
+		
+		_messagePlain_probe '_vncviewer_operations'
+		_report_detect_x11
+		
+		[[ "$vncviewer_startFull" == "true" ]] && vncviewerArgs+=(-FullScreen)
+		
+		if ! vncviewer -DotWhenNoCursor -passwd "$current_vncPasswdFile" localhost:"$vncPort" "${vncviewerArgs[@]}" "$@"
+		then
+			_messagePlain_bad 'fail: vncviewer'
+			stty echo > /dev/null 2>&1
+			return 1
+		fi
+		stty echo > /dev/null 2>&1
+		return 0
+	fi
+	
+	#TightVNC
+	if vncviewer --help 2>&1 | grep '\-passwd' >/dev/null 2>&1
+	then
+		_messagePlain_good 'found: vncviewer (TightVNC)'
+		
+		_messagePlain_probe '_vncviewer_operations'
+		_report_detect_x11
+		
+		#if ! vncviewer -encodings "copyrect tight zrle hextile" localhost:"$vncPort"
+		if ! vncviewer -passwd "$vncPasswdFile" localhost:"$vncPort" "$@"
+		then
+			_messagePlain_bad 'fail: vncviewer'
+			stty echo > /dev/null 2>&1
+			return 1
+		fi
+		stty echo > /dev/null 2>&1
+		return 0
+	fi
+	
+	type vncviewer > /dev/null 2>&1 && _messagePlain_bad 'unsupported: vncviewer'
+	! type vncviewer > /dev/null 2>&1 && _messagePlain_bad 'missing: vncviewer'
+	
+	return 1
 }
 
-# WARNING Not all autossh functions have been fully tested yet. However, previous versions of this system are known to be much more robust than autossh defaults.
-_autossh() {
-	mkdir -p "$scriptLocal"/ssh/log
-	local logID
-	logID=$(_uid)
-	_cmdDaemon "$scriptAbsoluteLocation" _autossh_launch "$@" >> "$scriptLocal"/ssh/log/_autossh."$logID".log 2>&1
+# Environment variables "x11vnc_clip" and "x11vnc_scale" may be forced.
+_x11vnc_operations() {
+	_messagePlain_nominal 'init: _x11vnc_operations'
+	
+	_messagePlain_nominal 'Searching for X11 display.'
+	! _detect_x11 && _messagePlain_bad 'fail: _detect_x11'
+	
+	export DISPLAY="$destination_DISPLAY"
+	export XAUTHORITY="$destination_AUTH"
+	_messagePlain_probe 'x11vnc_operations'
+	_report_detect_x11
+	
+	#local x11vncArgs
+	
+	[[ "$x11vnc_clip" != "" ]] && x11vncArgs+=(-clip "$x11vnc_clip")
+	[[ "$x11vnc_scale" != "" ]] && x11vncArgs+=(-scale "$x11vnc_scale")
+	[[ "$x11vnc_scale_cursor" != "" ]] && x11vncArgs+=(-cursor arrow -scale_cursor "$x11vnc_scale_cursor")
+	
+	_messagePlain_nominal 'Detecting and launching x11vnc.'
+	#x11vnc
+	if type x11vnc >/dev/null 2>&1
+	then
+		_messagePlain_good 'found: x11vnc'
+		
+		#-passwdfile cmd:"/bin/cat -"
+		#-noxrecord -noxfixes -noxdamage
+		#-shared
+		if ! _x11vnc_command  -once -notightfilexfer -no6 -noipv6 -localhost -rfbportv6 -1 -rfbauth "$vncPasswdFile" -rfbport "$vncPort" -timeout 120 -xkb -display "$destination_DISPLAY" -auth "$destination_AUTH" -noxrecord -noxdamage -xrefresh 1 -fixscreen "V=3,C=3,X=3,8=3" -ungrabboth -shared "${x11vncArgs[@]}"
+		then
+			_messagePlain_bad 'fail: x11vnc'
+			return 1
+		fi
+		
+		return 0
+	fi
+	
+	#TigerVNC.
+	if type x0tigervncserver
+	then
+		_messagePlain_good 'found: x0tigervncserver'
+		
+		if ! x0tigervncserver -rfbauth "$vncPasswdFile" -rfbport "$vncPort"
+		then
+			_messagePlain_bad 'fail: x0tigervncserver'
+			return 1
+		fi
+		return 0
+	fi
+	
+	_messagePlain_bad 'missing: x11vnc || x0tigervncserver'
+	
+	return 1
 }
-
-_reversessh() {
-	_ssh -R "${reversePorts[0]}":localhost:22 "$gatewayName" -N "$@"
-}
-
 
 
 
@@ -3431,8 +5246,15 @@ _testProxyRouter_sequence() {
 _testProxyRouter() {
 	_getDep socat
 	
-	_getDep nc
 	_getDep nmap
+	
+	_getDep curl
+	
+	# WARNING: Cygwin does not pass netcat tests.
+	uname -a | grep -i cygwin > /dev/null 2>&1 && return 0
+	
+	# WARNING: Do not rely on 'netcat' functionality. Relatively non-portable. Prefer "socat" .
+	_getDep nc
 	
 	if "$scriptAbsoluteLocation" _testProxyRouter_sequence "$@"
 	then
@@ -3440,6 +5262,28 @@ _testProxyRouter() {
 	fi
 	
 	_stop 1
+}
+
+_proxy_direct_ipv4() {
+	local proxyTargetHost
+	local proxyTargetPort
+	
+	proxyTargetHost="$1"
+	proxyTargetPort="$2"
+	
+	socat -4 - TCP:"$proxyTargetHost":"$proxyTargetPort",connect-timeout="$netTimeout" 2> /dev/null
+}
+
+_proxy_direct_ipv6() {
+	local proxyTargetHost
+	local proxyTargetPort
+	
+	proxyTargetHost="$1"
+	proxyTargetPort="$2"
+	
+	[[ "$proxyTargetHost" == *':'* ]] && proxyTargetHost='['"$proxyTargetHost"']'
+	
+	socat -6 - TCP:"$proxyTargetHost":"$proxyTargetPort",connect-timeout="$netTimeout" 2> /dev/null
 }
 
 #Routes standard in/out to a target host/port through netcat.
@@ -3450,10 +5294,41 @@ _proxy_direct() {
 	proxyTargetHost="$1"
 	proxyTargetPort="$2"
 	
+	[[ "$proxyTargetHost" == *':'* ]] && proxyTargetHost='['"$proxyTargetHost"']'
+	
 	#nc -q 96 "$proxyTargetHost" "$proxyTargetPort"
 	#nc -q -1 "$proxyTargetHost" "$proxyTargetPort"
 	#nc "$proxyTargetHost" "$proxyTargetPort" 2> /dev/null
-	socat - TCP:"$proxyTargetHost":"$proxyTargetPort" 2> /dev/null
+	
+	socat - TCP:"$proxyTargetHost":"$proxyTargetPort",connect-timeout="$netTimeout" 2> /dev/null
+}
+
+_proxy_ipv4() {
+	if _checkPort_ipv4 "$1" "$2"
+	then
+		#_proxy_direct_ipv4 "$1" "$2"
+		if _proxy_direct_ipv4 "$1" "$2"
+		then
+			# WARNING: Not to be relied upon. May not reach if terminated by signal.
+			_stop
+		fi
+	fi
+	
+	return 0
+}
+
+_proxy_ipv6() {
+	if _checkPort_ipv6 "$1" "$2"
+	then
+		#_proxy_direct_ipv6 "$1" "$2"
+		if _proxy_direct_ipv6 "$1" "$2"
+		then
+			# WARNING: Not to be relied upon. May not reach if terminated by signal.
+			_stop
+		fi
+	fi
+	
+	return 0
 }
 
 #Launches proxy if port at hostname is open.
@@ -3462,8 +5337,10 @@ _proxy_direct() {
 _proxy() {
 	if _checkPort "$1" "$2"
 	then
+		#_proxy_direct "$1" "$2"
 		if _proxy_direct "$1" "$2"
 		then
+			# WARNING: Not to be relied upon. May not reach if terminated by signal.
 			_stop
 		fi
 	fi
@@ -3483,6 +5360,83 @@ _proxy_reverse() {
 		_proxy "$2" "$currentReversePort"
 	done
 }
+
+_relay() {
+	socat tcp-listen:"$1",reuseaddr,fork tcp:localhost:"$2"
+}
+
+# WARNING: Choose reputable services that have been documented alive for at least a few years.
+#https://gist.github.com/yurrriq/7fc7634dd00494072f45
+_find_public_ipv4() {
+	local currentPublicIPaddr
+	
+	currentPublicIPaddr=$(curl --connect-timeout "$netTimeout" -4 -s https://ipv4.icanhazip.com/ | tr -dc 'a-zA-Z0-9.:')
+	[[ "$currentPublicIPaddr" == "" ]] && currentPublicIPaddr=$(curl --connect-timeout "$netTimeout" -4 -s https://ipv4.icanhazip.com/ | tr -dc 'a-zA-Z0-9.:')
+	
+	[[ "$currentPublicIPaddr" == "" ]] && currentPublicIPaddr=$(curl --connect-timeout "$netTimeout" -4 -s https://v4.ident.me/ | tr -dc 'a-zA-Z0-9.:')
+	
+	# CAUTION: Not explicitly IPv4 (though probably nearly so) - https://ipecho.net/developers.html .
+	[[ "$currentPublicIPaddr" == "" ]] && currentPublicIPaddr=$(curl --connect-timeout "$netTimeout" -4 -s https://ipecho.net/plain | tr -dc 'a-zA-Z0-9.:')
+	
+	
+	[[ "$currentPublicIPaddr" == "" ]] && return 1
+	echo -n "$currentPublicIPaddr"
+	return 0
+}
+
+# WARNING: Choose reputable services that have been documented alive for at least a few years.
+#https://gist.github.com/yurrriq/7fc7634dd00494072f45
+_find_public_ipv6() {
+	local currentPublicIPaddr
+	
+	currentPublicIPaddr=$(curl --connect-timeout "$netTimeout" -6 -s https://ipv6.icanhazip.com/ | tr -dc 'a-zA-Z0-9.:')
+	[[ "$currentPublicIPaddr" == "" ]] && currentPublicIPaddr=$(curl --connect-timeout "$netTimeout" -6 -s https://ipv6.icanhazip.com/ | tr -dc 'a-zA-Z0-9.:')
+	
+	[[ "$currentPublicIPaddr" == "" ]] && currentPublicIPaddr=$(curl --connect-timeout "$netTimeout" -6 -s https://v6.ident.me/ | tr -dc 'a-zA-Z0-9.:')
+	
+	
+	[[ "$currentPublicIPaddr" == "" ]] && return 1
+	echo -n "$currentPublicIPaddr"
+	return 0
+}
+
+_find_public_ip() {
+	local currentPublicIPaddr
+	
+	[[ "$currentPublicIPaddr" == "" ]] && currentPublicIPaddr=$(_find_public_ipv6)
+	[[ "$currentPublicIPaddr" == "" ]] && currentPublicIPaddr=$(_find_public_ipv4)
+	
+	
+	[[ "$currentPublicIPaddr" == "" ]] && return 1
+	echo -n "$currentPublicIPaddr"
+	return 0
+}
+
+#https://stackoverflow.com/questions/21336126/linux-bash-script-to-extract-ip-address
+_find_route_ipv4() {
+	#ip route get 8.8.8.8 | awk 'NR==1 {print $NF}'
+	ip route get 8.8.8.8 | awk -F"src " 'NR==1{split($2,a," ");print a[1]}'
+}
+
+#https://stackoverflow.com/questions/21336126/linux-bash-script-to-extract-ip-address
+_find_route_ipv6() {
+	ip route get 2001:4860:4860::8888 | awk -F"src " 'NR==1{split($2,a," ");print a[1]}'
+}
+
+_find_route_ip() {
+	local currentRouteIPaddr
+	
+	[[ "$currentRouteIPaddr" == "" ]] && currentRouteIPaddr=$(_find_route_ipv6)
+	[[ "$currentRouteIPaddr" == "" ]] && currentRouteIPaddr=$(_find_route_ipv4)
+	
+	[[ "$currentRouteIPaddr" == "" ]] && return 1
+	echo -n "$currentRouteIPaddr"
+	return 0
+}
+
+
+
+
 
 
 #Run command and output to terminal with colorful formatting. Controlled variant of "bash -v".
@@ -3753,7 +5707,7 @@ _fetchDep_debianStretch_special() {
 	then
 		sudo -n dpkg --add-architecture i386
 		sudo -n apt-get update
-		sudo -n apt-get install --install-recommends -y wine
+		sudo -n apt-get install --install-recommends -y wine wine32 wine64 libwine libwine:i386 fonts-wine
 		return 0
 	fi
 	
@@ -3819,7 +5773,9 @@ _fetchDep_debianStretch_special() {
 		wget -q https://www.virtualbox.org/download/oracle_vbox.asc -O- | sudo -n apt-key add -
 		
 		sudo -n apt-get update
-		sudo -n apt-get install --install-recommends -y dkms virtualbox-5.2
+		sudo -n apt-get install --install-recommends -y dkms virtualbox-6.0
+		
+		echo "WARNING: Recommend manual system configuration after install. See https://www.virtualbox.org/wiki/Downloads ."
 		
 		return 0
 	fi
@@ -3876,7 +5832,7 @@ _fetchDep_debianStretch_special() {
 	
 	if [[ "$1" == "docker" ]]
 	then
-		sudo apt-get install --install-recommends -y apt-transport-https ca-certificates curl gnupg2 software-properties-common
+		sudo -n apt-get install --install-recommends -y apt-transport-https ca-certificates curl gnupg2 software-properties-common
 		
 		"$scriptAbsoluteLocation" _getDep curl
 		! _wantDep curl && return 1
@@ -3930,6 +5886,13 @@ _fetchDep_debianStretch_special() {
 		return 0
 	fi
 	
+	if [[ "$1" == "php" ]]
+	then
+		sudo -n apt-get install --no-install-recommends -y php
+		
+		return 0
+	fi
+	
 	if [[ "$1" == "cura-lulzbot" ]]
 	then
 		#Testing/Sid only as of Stretch release cycle.
@@ -3937,8 +5900,8 @@ _fetchDep_debianStretch_special() {
 		
 		echo "Requires manual installation. See https://www.lulzbot.com/learn/tutorials/cura-lulzbot-edition-installation-debian ."
 cat << 'CZXWXcRMTo8EmM8i4d'
-wget -qO - https://download.alephobjects.com/ao/aodeb/aokey.pub | sudo apt-key add -
-sudo cp /etc/apt/sources.list /etc/apt/sources.list.bak && sudo sed -i '$a deb http://download.alephobjects.com/ao/aodeb jessie main' /etc/apt/sources.list && sudo apt-get update && sudo apt-get install cura-lulzbot
+wget -qO - https://download.alephobjects.com/ao/aodeb/aokey.pub | sudo -n apt-key add -
+sudo -n cp /etc/apt/sources.list /etc/apt/sources.list.bak && sudo -n sed -i '$a deb http://download.alephobjects.com/ao/aodeb jessie main' /etc/apt/sources.list && sudo -n apt-get update && sudo -n apt-get install cura-lulzbot
 CZXWXcRMTo8EmM8i4d
 		echo "(typical)"
 		_stop 1
@@ -4093,8 +6056,8 @@ _hook_systemd_shutdown() {
 	! [[ -e /etc/systemd/system ]] && return 0
 	
 	_here_systemd_shutdown | sudo -n tee /etc/systemd/system/"$sessionid".service > /dev/null
-	sudo -n systemctl enable "$sessionid".service 2>&1 | sudo tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
-	sudo -n systemctl start "$sessionid".service 2>&1 | sudo tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
+	sudo -n systemctl enable "$sessionid".service 2>&1 | sudo -n tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
+	sudo -n systemctl start "$sessionid".service 2>&1 | sudo -n tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
 }
 
 _hook_systemd_shutdown_action() {
@@ -4105,8 +6068,8 @@ _hook_systemd_shutdown_action() {
 	! [[ -e /etc/systemd/system ]] && return 0
 	
 	_here_systemd_shutdown_action "$@" | sudo -n tee /etc/systemd/system/"$sessionid".service > /dev/null
-	sudo -n systemctl enable "$sessionid".service 2>&1 | sudo tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
-	sudo -n systemctl start "$sessionid".service 2>&1 | sudo tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
+	sudo -n systemctl enable "$sessionid".service 2>&1 | sudo -n tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
+	sudo -n systemctl start "$sessionid".service 2>&1 | sudo -n tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
 	
 }
 
@@ -4122,11 +6085,11 @@ _unhook_systemd_shutdown() {
 	
 	! [[ -e /etc/systemd/system ]] && return 0
 	
-	[[ "$SYSTEMCTLDISABLE" == "true" ]] && echo SYSTEMCTLDISABLE | sudo tee -a "$permaLog"/gsysd.log > /dev/null 2>&1 && return 0
+	[[ "$SYSTEMCTLDISABLE" == "true" ]] && echo SYSTEMCTLDISABLE | sudo -n tee -a "$permaLog"/gsysd.log > /dev/null 2>&1 && return 0
 	export SYSTEMCTLDISABLE=true
 	
-	sudo -n systemctl disable "$hookSessionid".service 2>&1 | sudo tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
-	sudo -n rm -f /etc/systemd/system/"$hookSessionid".service 2>&1 | sudo tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
+	sudo -n systemctl disable "$hookSessionid".service 2>&1 | sudo -n tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
+	sudo -n rm -f /etc/systemd/system/"$hookSessionid".service 2>&1 | sudo -n tee -a "$permaLog"/gsysd.log > /dev/null 2>&1
 }
 
 #Determines if user is root. If yes, then continue. If not, exits after printing error message.
@@ -4164,6 +6127,46 @@ _wantSudo() {
 	! [[ "$rootAvailable" == "true" ]] && return 1
 	
 	return 0
+}
+
+#Returns a UUID in the form of xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+_getUUID() {
+	cat /proc/sys/kernel/random/uuid
+}
+alias getUUID=_getUUID
+
+_test_bashdb() {
+	#_getDep ddd
+	
+	#if ! _discoverResource bashdb-code/bashdb.sh > /dev/null 2>&1
+	#then
+	#	echo
+	#	echo 'bashdb required for debugging'
+		#_stop 1
+	#fi
+	
+	if ! type bashdb > /dev/null 2>&1
+	then
+		echo
+		echo 'warn: bashdb required for debugging'
+	#_stop 1
+	fi
+	
+	return 0
+}
+
+
+_stopwatch() {
+	local measureDateA
+	local measureDateB
+	
+	measureDateA=$(date +%s%N | cut -b1-13)
+
+	"$@"
+
+	measureDateB=$(date +%s%N | cut -b1-13)
+
+	bc <<< "$measureDateB - $measureDateA"
 }
 
 #####Idle
@@ -4235,7 +6238,7 @@ _verifyGosu_sequence() {
 	chmod 700 "$shortTmp"/vgosu
 	
 	# TODO Add further verification steps.
-	gpg --armor --import "$gpgTestDir"/gosudev.asc || _stop 1
+	gpg -q --batch --armor --import "$gpgTestDir"/gosudev.asc || _stop 1
 	
 	gpg --batch --verify "$gpgTestDir"/gosu-armel.asc "$gpgTestDir"/gosu-armel || _stop 1
 	gpg --batch --verify "$gpgTestDir"/gosu-amd64.asc "$gpgTestDir"/gosu-amd64 || _stop 1
@@ -4309,46 +6312,6 @@ _buildGosu_sequence() {
 
 _buildGosu() {
 	"$scriptAbsoluteLocation" _buildGosu_sequence "$@"
-}
-
-#Returns a UUID in the form of xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-_getUUID() {
-	cat /proc/sys/kernel/random/uuid
-}
-alias getUUID=_getUUID
-
-_test_bashdb() {
-	#_getDep ddd
-	
-	#if ! _discoverResource bashdb-code/bashdb.sh > /dev/null 2>&1
-	#then
-	#	echo
-	#	echo 'bashdb required for debugging'
-		#_stop 1
-	#fi
-	
-	if ! type bashdb > /dev/null 2>&1
-	then
-		echo
-		echo 'warn: bashdb required for debugging'
-	#_stop 1
-	fi
-	
-	return 0
-}
-
-
-_stopwatch() {
-	local measureDateA
-	local measureDateB
-	
-	measureDateA=$(date +%s%N | cut -b1-13)
-
-	"$@"
-
-	measureDateB=$(date +%s%N | cut -b1-13)
-
-	bc <<< "$measureDateB - $measureDateA"
 }
 
 
@@ -4554,6 +6517,11 @@ _nixToMSW() {
 	
 	_slashBackToForward "$intermediateStepOne"
 }
+
+_test_localpath() {
+	_getDep realpath
+}
+
 
 #Determines whether test parameter is in the path of base parameter.
 #"$1" == testParameter
@@ -4832,8 +6800,21 @@ _vector_virtUser() {
 
 
 
+_test_abstractfs_sequence() {
+	export afs_nofs="true"
+	if ! "$scriptAbsoluteLocation" _abstractfs ls "$scriptAbsoluteLocation" > /dev/null 2>&1
+	then
+		_stop 1
+	fi
+}
+
 _test_abstractfs() {
 	_getDep md5sum
+	if ! "$scriptAbsoluteLocation" _test_abstractfs_sequence
+	then
+		echo 'fail: abstractfs: ls'
+		_stop 1
+	fi
 }
 
 _abstractfs() {
@@ -5021,7 +7002,7 @@ _write_projectAFS() {
 	testAbstractfsBase="$abstractfs_base"
 	[[ "$1" != "" ]] && testAbstractfsBase=$(_getAbsoluteLocation "$1")
 	
-	( [[ "$nofs" == "true" ]] || [[ "$afs_nofs" == "true" ]] ) && return
+	( [[ "$nofs" == "true" ]] || [[ "$afs_nofs" == "true" ]] ) && return 0
 	_projectAFS_here > "$testAbstractfsBase"/project.afs
 	chmod u+x "$testAbstractfsBase"/project.afs
 }
@@ -5528,6 +7509,7 @@ _loopImage_sequence() {
 	[[ -e "$scriptLocal"/imagedev ]] && _stop 1
 	
 	local imagefilename
+	[[ -e "$scriptLocal"/vm-raspbian.img ]] && imagefilename="$scriptLocal"/vm-raspbian.img
 	#[[ -e "$scriptLocal"/vm-x64.img ]] && imagefilename="$scriptLocal"/vm-x64.img
 	[[ -e "$scriptLocal"/vm.img ]] && imagefilename="$scriptLocal"/vm.img
 	
@@ -6042,6 +8024,8 @@ _setShareMSW() {
 
 #Consider using explorer.exe to use file associations within the guest. Overload with ops to force a more specific 'preCommand'.
 _preCommand_MSW() {
+	echo 'X:'
+	echo 'cd '"$localPWD"
 	echo -e -n 'start /MAX "" "explorer.exe" '
 }
 
@@ -6432,12 +8416,12 @@ _mountChRoot() {
 	
 	if ! grep '8\.8\.8\.8' "$absolute1"/etc/resolv.conf > /dev/null 2>&1
 	then
-		echo 'nameserver 8.8.8.8' | sudo tee -a "$absolute1"/etc/resolv.conf > /dev/null 2>&1
+		echo 'nameserver 8.8.8.8' | sudo -n tee -a "$absolute1"/etc/resolv.conf > /dev/null 2>&1
 	fi
 	
 	if ! grep '2001\:4860\:4860\:\:8888' "$absolute1"/etc/resolv.conf > /dev/null 2>&1
 	then
-		echo 'nameserver 2001:4860:4860::8888' | sudo tee -a "$absolute1"/etc/resolv.conf > /dev/null 2>&1
+		echo 'nameserver 2001:4860:4860::8888' | sudo -n tee -a "$absolute1"/etc/resolv.conf > /dev/null 2>&1
 	fi
 }
 
@@ -6490,6 +8474,12 @@ _readyChRoot() {
 	
 }
 
+# ATTENTION: Override with "core.sh" or similar.
+# WARNING: Must return true to complete mount/umount procedure
+_mountChRoot_image_raspbian_prog() {
+	true
+}
+
 _mountChRoot_image_raspbian() {
 	_mustGetSudo
 	
@@ -6515,10 +8505,11 @@ _mountChRoot_image_raspbian() {
 		local chrootimagepart
 		chrootimagepart="$chrootimagedev"p2
 		
-		local chrootloopdevfs
-		chrootloopdevfs=$(eval $(sudo -n blkid "$chrootimagepart" | awk ' { print $3 } '); echo $TYPE)
+		#local chrootloopdevfs
+		#chrootloopdevfs=$(eval $(sudo -n blkid "$chrootimagepart" | awk ' { print $3 } '); echo $TYPE)
+		#if [[ "$chrootloopdevfs" == "ext4" ]]
 		
-		if [[ "$chrootloopdevfs" == "ext4" ]]
+		if sudo -n blkid "$chrootimagepart" | grep 'ext4' > /dev/null 2>&1
 		then
 			
 			sudo -n mount "$chrootimagepart" "$chrootDir" || _stop 1
@@ -6534,6 +8525,8 @@ _mountChRoot_image_raspbian() {
 			
 			sudo -n cp -n "$chrootDir"/etc/ld.so.preload "$chrootDir"/etc/ld.so.preload.orig
 			echo | sudo -n tee "$chrootDir"/etc/ld.so.preload > /dev/null 2>&1
+			
+			! _mountChRoot_image_raspbian_prog "$chrootimagedev" && _stop 1
 			
 			_stop 0
 		fi
@@ -6641,10 +8634,20 @@ _umountChRoot_directory() {
 	"$scriptAbsoluteLocation" _checkForMounts "$1" && return 1
 }
 
+# ATTENTION: Override with "core.sh" or similar.
+# WARNING: Must return true to complete mount/umount procedure
+_umountChRoot_image_prog() {
+	true
+}
+
 _umountChRoot_image() {
 	_mustGetSudo || return 1
 	
 	_umountChRoot_directory "$chrootDir" && return 1
+	
+	! _umountChRoot_image_prog && return 1
+	
+	[[ -d "$globalVirtFS"/../boot ]] && mountpoint "$globalVirtFS"/../boot >/dev/null 2>&1 && sudo -n umount "$globalVirtFS"/../boot
 	
 	local chrootimagedev
 	chrootimagedev=$(cat "$scriptLocal"/imagedev)
@@ -6713,8 +8716,8 @@ _closeChRoot() {
 }
 
 _haltAllChRoot() {
-	find "$scriptAbsoluteFolder"/v_*/fs -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _umountChRoot_directory {} \;
-	find "$scriptAbsoluteFolder"/v_*/tmp -maxdepth 1 -type d -exec sudo -n umount {} \;
+	find "$scriptAbsoluteFolder"/v_*/fs -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _umountChRoot_directory '{}' \;
+	find "$scriptAbsoluteFolder"/v_*/tmp -maxdepth 1 -type d -exec sudo -n umount '{}' \;
 	find "$scriptAbsoluteFolder"/v_*/ -maxdepth 12 -type d | head -n 48 | tac | xargs rmdir
 	
 	"$scriptAbsoluteLocation" _closeChRoot --force
@@ -6816,9 +8819,9 @@ _mountChRoot_userAndHome() {
 	
 	# TODO Device Mapper snapshot ChRoot instancing alternative. Disadvantage of not allowing the root filesystem to be simultaneously mounted read-write.
 	# TODO Develop a function to automatically select whatever unionfs equivalent may be supported by the host.
-	#sudo /bin/mount -t unionfs -o dirs="$instancedVirtTmp":"$globalVirtFS"=ro unionfs "$instancedVirtFS"
+	#sudo -n /bin/mount -t unionfs -o dirs="$instancedVirtTmp":"$globalVirtFS"=ro unionfs "$instancedVirtFS"
 	sudo -n unionfs-fuse -o cow,allow_other,use_ino,suid,dev "$instancedVirtTmp"=RW:"$globalVirtFS"=RO "$instancedVirtFS"
-	#sudo unionfs -o dirs="$instancedVirtTmp":"$globalVirtFS"=ro "$instancedVirtFS"
+	#sudo -n unionfs -o dirs="$instancedVirtTmp":"$globalVirtFS"=ro "$instancedVirtFS"
 	sudo -n chown "$USER":"$USER" "$instancedVirtFS"
 	
 	#unionfs-fuse -o cow,max_files=32768 -o allow_other,use_ino,suid,dev,nonempty /u/host/etc=RW:/u/group/etc=RO:/u/common/etc=RO /u/union/etc
@@ -7143,7 +9146,7 @@ _dropChRoot() {
 	
 	"$scriptAbsoluteLocation" _gosuExecVirt cp -r /etc/skel/. "$virtGuestHomeDrop"
 	
-	"$scriptAbsoluteLocation" _gosuExecVirt "$scriptAbsoluteLocation" _setupUbiquitous_nonet
+	"$scriptAbsoluteLocation" _gosuExecVirt "$scriptAbsoluteLocation" _setupUbiquitous_nonet > /dev/null 2>&1
 	
 	# Drop to user ubvrtusr, using gosu.
 	_gosuExecVirt "$@"
@@ -7184,6 +9187,9 @@ _testQEMU_x64-raspi() {
 	_testQEMU_x64-x64
 	_getDep qemu-arm-static
 	_getDep qemu-armeb-static
+	
+	_getDep qemu-system-arm
+	_getDep qemu-system-aarch64
 	
 	_mustGetSudo
 	
@@ -7251,24 +9257,21 @@ _qemu-system() {
 	qemu-system-x86_64 "$@"
 }
 
-#Overload this function, or the guestArch variable, to configure QEMU to  guest with a specif
-_qemu() {
-	local qemuHostArch
-	qemuHostArch=$(uname -m)
-	[[ "$qemuHostArch" == "" ]] && qemuGuestArch="$qemuHostArch"
-	 _messagePlain_probe 'qemuGuestArch= '"$qemuGuestArch"
-	
-	local qemuExitStatus
-	
-	[[ "$qemuHostArch" == "x86_64" ]] && _messagePlain_probe '>qemu= qemu-system-x86_64' && qemu-system-x86_64 "$@"
-	qemuExitStatus="$?"
-	
-	
-	return "$qemuExitStatus"
+#Overload this function, or the guestArch variable, to configure QEMU with specialized parameters.
+_qemu_system_x86_64() {
+	qemu-system-x86_64 "$@"
 }
 
-_integratedQemu() {
-	_messagePlain_nominal 'init: _integratedQemu'
+_qemu_system_arm() {
+	qemu-system-arm "$@"
+}
+
+_qemu_system_aarch64() {
+	qemu-system-aarch64 "$@"
+}
+
+_integratedQemu_x64() {
+	_messagePlain_nominal 'init: _integratedQemu_x64'
 	
 	! mkdir -p "$instancedVirtDir" && _messagePlain_bad 'fail: mkdir -p instancedVirtDir= '"$instancedVirtDir" && _stop 1
 	
@@ -7291,7 +9294,7 @@ _integratedQemu() {
 		_messagePlain_warn 'warn: no nested x64'
 	fi
 	
-	local hostThreadCount=$(cat /proc/cpuinfo | grep MHz | wc -l)
+	local hostThreadCount=$(cat /proc/cpuinfo | grep MHz | wc -l | tr -dc '0-9')
 	[[ "$hostThreadCount" -ge "4" ]] && [[ "$hostThreadCount" -lt "8" ]] && _messagePlain_probe 'cpu: >4' && qemuArgs+=(-smp 4)
 	[[ "$hostThreadCount" -ge "8" ]] && _messagePlain_probe 'cpu: >6' && qemuArgs+=(-smp 6)
 	
@@ -7322,10 +9325,91 @@ _integratedQemu() {
 	
 	qemuArgs+=("${qemuSpecialArgs[@]}" "${qemuUserArgs[@]}")
 	
-	_messagePlain_probe _qemu "${qemuArgs[@]}"
-	_qemu "${qemuArgs[@]}"
+	_messagePlain_probe _qemu_system_x86_64 "${qemuArgs[@]}"
+	_qemu_system_x86_64 "${qemuArgs[@]}"
 	
 	_safeRMR "$instancedVirtDir" || _stop 1
+}
+
+# DANGER: Do NOT call without snapshot on RasPi images intended for real (ie. arm64, "RPI3") hardware! Untested!
+# WARNING: NOT recommended. Severely restricted performance and features.
+#https://azeria-labs.com/emulate-raspberry-pi-with-qemu/
+#https://www.raspberrypi.org/forums/viewtopic.php?t=195565
+#https://github.com/dhruvvyas90/qemu-rpi-kernel
+#qemu-system-arm -kernel ./kernel-raspi -cpu arm1176 -m 256 -M versatilepb -serial stdio -append "root=/dev/sda2 rootfstype=ext4 rw" -hda ./vm-raspbian.img -redir tcp:5022::22 -no-reboot
+#qemu-system-arm -kernel ./kernel-raspi -cpu arm1176 -m 256 -M versatilepb -dtb versatile-pb.dtb -no-reboot -append "root=/dev/sda2 panic=1 rootfstype=ext4 rw" -net nic -net user,hostfwd=tcp::5022-:22 -hda ./vm-raspbian.img
+#https://raspberrypi.stackexchange.com/questions/45936/has-anyone-managed-to-run-raspberry-pi-3-with-kvm-enabled
+#https://wiki.qemu.org/Documentation/Platforms/ARM
+#https://github.com/bztsrc/raspi3-tutorial
+#https://translatedcode.wordpress.com/2018/04/25/debian-on-qemus-raspberry-pi-3-model/
+_integratedQemu_raspi() {
+	_messagePlain_nominal 'init: _integratedQemu_raspi'
+	
+	! mkdir -p "$instancedVirtDir" && _messagePlain_bad 'fail: mkdir -p instancedVirtDir= '"$instancedVirtDir" && _stop 1
+	
+	! _commandBootdisc "$@" && _messagePlain_bad 'fail: _commandBootdisc' && _stop 1
+	
+	! [[ -e "$scriptLocal"/kernel-raspi ]] && _messagePlain_bad 'fail: missing: kernel-raspi' && _messagePlain_probe 'request: obtain kernel-raspi : https://github.com/dhruvvyas90/qemu-rpi-kernel'
+	! [[ -e "$scriptLocal"/kernel-raspi ]] && _messagePlain_bad 'fail: missing: versatile-pb.dtb' && _messagePlain_probe 'request: obtain versatile-pb.dtb : https://github.com/dhruvvyas90/qemu-rpi-kernel'
+	qemuUserArgs+=(-kernel "$scriptLocal"/kernel-raspi -cpu arm1176 -M versatilepb -dtb "$scriptLocal"/versatile-pb.dtb -append "root=/dev/sda2 panic=1 rootfstype=ext4 rw" -no-reboot)
+	#qemuUserArgs+=(-kernel "$scriptLocal"/kernel-raspi -M raspi3 -append "root=/dev/sda2 rootfstype=ext4 rw" -no-reboot)
+	#qemuUserArgs+=(-kernel "$scriptLocal"/kernel-raspi -M virt -bios /usr/share/qemu-efi/QEMU_EFI.fd -append "root=/dev/sda2 panic=1 rootfstype=ext4 rw" -no-reboot)
+	#qemuUserArgs+=(-kernel "$scriptLocal"/kernel-raspi -cpu arm1176 -M virt -bios /usr/share/qemu-efi/QEMU_EFI.fd -append "root=/dev/sda2 panic=1 rootfstype=ext4 rw" -no-reboot)
+	
+	#local hostThreadCount=$(cat /proc/cpuinfo | grep MHz | wc -l | tr -dc '0-9')
+	#[[ "$hostThreadCount" -ge "4" ]] && _messagePlain_probe 'cpu: >4' && qemuArgs+=(-smp 4)
+	
+	qemuUserArgs+=(-drive format=raw,file="$scriptLocal"/vm-raspbian.img)
+	#qemuUserArgs+=(-drive if=none,id=uas-cdrom,media=cdrom,file="$hostToGuestISO" -device nec-usb-xhci,id=xhci -device usb-uas,id=uas,bus=xhci.0 -device scsi-cd,bus=uas.0,scsi-id=0,lun=5,drive=uas-cdrom)
+	qemuUserArgs+=(-drive file="$hostToGuestISO",media=cdrom -boot c)
+	
+	#[[ "$vmMemoryAllocation" == "" ]] && vmMemoryAllocation="$vmMemoryAllocationDefault"
+	#qemuUserArgs+=(-m "$vmMemoryAllocation")
+	qemuUserArgs+=(-m 256)
+	
+	# ATTENTION: Overload with "ops" or similar.
+	[[ "$qemuUserArgs_netRestrict" == "" ]] && qemuUserArgs_netRestrict="n"
+	#[[ "$qemuUserArgs_net_guestSSH" == "" ]] && qemuUserArgs_net_guestSSH=",hostfwd=tcp::5022-:22"
+	[[ "$qemuUserArgs_net_guestSSH" == "" ]] && qemuUserArgs_net_guestSSH=""
+	
+	#qemuUserArgs+=(-net nic,model=rtl8139 -net user,restrict="$qemuUserArgs_netRestrict",smb="$sharedHostProjectDir")
+	qemuUserArgs+=(-net nic -net user,restrict="$qemuUserArgs_netRestrict""$qemuUserArgs_net_guestSSH",smb="$sharedHostProjectDir")
+	
+	#qemuArgs+=(-usbdevice tablet)
+	
+	#qemuArgs+=(-vga cirrus)
+	
+	#[[ "$qemuArgs_audio" == "" ]] && qemuArgs+=(-device ich9-intel-hda -device hda-duplex)
+	
+	#qemuArgs+=(-show-cursor)
+	
+	qemuUserArgs+=(-serial stdio)
+	
+	qemuArgs+=("${qemuSpecialArgs[@]}" "${qemuUserArgs[@]}")
+	
+	_messagePlain_probe _qemu_system_arm "${qemuArgs[@]}"
+	_qemu_system_arm "${qemuArgs[@]}"
+	#_messagePlain_probe _qemu_system_aarch64 "${qemuArgs[@]}"
+	#_qemu_system_aarch64 "${qemuArgs[@]}"
+	
+	_safeRMR "$instancedVirtDir" || _stop 1
+}
+
+_integratedQemu() {
+	if [[ -e "$scriptLocal"/vm.img ]]
+	then
+		_integratedQemu_x64 "$@"
+		return 0
+	fi
+	
+	if [[ -e "$scriptLocal"/vm-raspbian.img ]]
+	then
+		_integratedQemu_raspi "$@"
+		return 0
+	fi
+	
+	_messagePlain_bad 'fail: missing: vm*.img'
+	return 1
 }
 
 #"${qemuSpecialArgs[@]}" == ["-snapshot "]
@@ -7375,6 +9459,7 @@ _editQemu_sequence() {
 	_stop
 }
 
+# DANGER: Do NOT call without snapshot on RasPi images intended for real (ie. arm64, "RPI3") hardware! Untested!
 _editQemu() {
 	_findInfrastructure_virtImage ${FUNCNAME[0]} "$@"
 	[[ "$ubVirtImageLocal" == "false" ]] && return
@@ -7573,6 +9658,20 @@ _vboxlabSSH() {
 	ssh -q -F "$scriptLocal"/vblssh -i "$scriptLocal"/id_rsa "$1"
 }
 
+_labVBox_migrate() {
+	_messageNormal 'init: _labVBox_migrate'
+	
+	! _prepare_lab_vbox && _messagePlain_bad 'fail: _prepare_lab_vbox' && return 1
+	
+	export ub_new_VBOXID=$(_uid)
+	
+	find . \( -iname '*.xml' -o -iname '*.xml*' -o -iname '*.xbel' -o -iname '*.conf' -o -iname '*.vbox' -o -iname '*.vbox*' -o -iname '*.id' \) -exec sed -i 's/'$VBOXID'/'"$ub_new_VBOXID"'/g' '{}' \;
+	
+	_messagePlain_good 'complete: _labVBox_migrate'
+}
+
+
+
 _prepare_instance_vbox() {
 	_prepare_vbox "$instancedVirtDir"
 }
@@ -7612,7 +9711,34 @@ _remove_instance_vbox() {
 	_prepare_instance_vbox || return 1
 }
 
+#https://www.virtualbox.org/ticket/18257
+_workaround_VirtualBoxVM() {
+	if type VirtualBoxVM > /dev/null 2>&1
+	then
+		VirtualBoxVM "$@"
+		return
+	fi
+	if ! type VirtualBoxVM > /dev/null 2>&1 && type /usr/lib/virtualbox/VirtualBoxVM > /dev/null 2>&1
+	then
+		/usr/lib/virtualbox/VirtualBoxVM "$@"
+		return
+	fi
+	if ! type VirtualBoxVM > /dev/null 2>&1 && type /usr/local/lib/virtualbox/VirtualBoxVM > /dev/null 2>&1
+	then
+		/usr/local/lib/virtualbox/VirtualBoxVM "$@"
+		return
+	fi
+	if ! type VirtualBoxVM > /dev/null 2>&1
+	then
+		VirtualBox "$@"
+		return
+	fi
+}
+
 _vboxGUI() {
+	#_workaround_VirtualBoxVM "$@"
+	
+	#VirtualBoxVM "$@"
 	#VirtualBox "$@"
 	VBoxSDL "$@"
 }
@@ -7675,6 +9801,12 @@ _set_instance_vbox_features() {
 	
 }
 
+_set_instance_vbox_features_app() {
+	true
+	#[[ "$vboxOStype" == *"Win"*"XP"* ]] && vboxChipset="piix3"
+	#VBoxManage modifyvm "$sessionid" --usbxhci on
+}
+
 _set_instance_vbox_share() {
 	#VBoxManage sharedfolder add "$sessionid" --name "root" --hostpath "/"
 	if [[ "$sharedHostProjectDir" != "" ]]
@@ -7717,6 +9849,8 @@ _create_instance_vbox() {
 	
 	! _set_instance_vbox_features && _messageError 'FAIL' && return 1
 	
+	! _set_instance_vbox_features_app && _messageError 'FAIL: unknown app failure' && return 1
+	
 	_set_instance_vbox_command "$@"
 	
 	_messagePlain_nominal 'Mounting shared filesystems.'
@@ -7726,7 +9860,8 @@ _create_instance_vbox() {
 	! VBoxManage storagectl "$sessionid" --name "IDE Controller" --add ide --controller PIIX4 && _messagePlain_bad 'fail: VBoxManage... attach ide controller'
 	
 	#export vboxDiskMtype="normal"
-	[[ "$vboxDiskMtype" == "" ]] && export vboxDiskMtype="multiattach"
+	#[[ "$vboxDiskMtype" == "" ]] && export vboxDiskMtype="multiattach"
+	[[ "$vboxDiskMtype" == "" ]] && export vboxDiskMtype="immutable"
 	_messagePlain_probe 'vboxDiskMtype= '"$vboxDiskMtype"
 	
 	_messagePlain_probe VBoxManage storageattach "$sessionid" --storagectl "IDE Controller" --port 0 --device 0 --type hdd --medium "$vboxInstanceDiskImage" --mtype "$vboxDiskMtype"
@@ -8383,7 +10518,7 @@ _test_docker() {
 	
 	#https://docs.docker.com/engine/installation/linux/docker-ce/debian/#install-using-the-repository
 	#https://wiki.archlinux.org/index.php/Docker#Installation
-	#sudo usermod -a -G docker "$USER"
+	#sudo -n usermod -a -G docker "$USER"
 	
 	_getDep /sbin/losetup
 	if ! [[ -e "/dev/loop-control" ]] || ! [[ -e "/sbin/losetup" ]]
@@ -8510,15 +10645,15 @@ _grepFileLine() {
 _findFunction() {
 	#-name '*.sh'
 	#-not -path "./_local/*"
-	#find ./blockchain -name '*.sh' -type f -size -10000k -exec grep -n "$@" {} /dev/null \;
-	#find ./generic -name '*.sh' -type f -size -10000k -exec grep -n "$@" {} /dev/null \;
-	#find ./instrumentation -name '*.sh' -type f -size -10000k -exec grep -n "$@" {} /dev/null \;
-	#find ./labels -name '*.sh' -type f -size -10000k -exec grep -n "$@" {} /dev/null \;
-	#find ./os -name '*.sh' -type f -size -10000k -exec grep -n "$@" {} /dev/null \;
-	#find ./shortcuts -name '*.sh' -type f -size -10000k -exec grep -n "$@" {} /dev/null \;
-	#find . -name '*.sh' -type f -size -10000k -exec grep -n "$@" {} /dev/null \;
+	#find ./blockchain -name '*.sh' -type f -size -10000k -exec grep -n "$@" '{}' /dev/null \;
+	#find ./generic -name '*.sh' -type f -size -10000k -exec grep -n "$@" '{}' /dev/null \;
+	#find ./instrumentation -name '*.sh' -type f -size -10000k -exec grep -n "$@" '{}' /dev/null \;
+	#find ./labels -name '*.sh' -type f -size -10000k -exec grep -n "$@" '{}' /dev/null \;
+	#find ./os -name '*.sh' -type f -size -10000k -exec grep -n "$@" '{}' /dev/null \;
+	#find ./shortcuts -name '*.sh' -type f -size -10000k -exec grep -n "$@" '{}' /dev/null \;
+	#find . -name '*.sh' -type f -size -10000k -exec grep -n "$@" '{}' /dev/null \;
 	
-	find . -not -path "./_local/*" -name '*.sh' -type f -size -1000k -exec grep -n "$@" {} /dev/null \;
+	find . -not -path "./_local/*" -name '*.sh' -type f -size -1000k -exec grep -n "$@" '{}' /dev/null \;
 }
 
 _test_devemacs() {
@@ -8922,6 +11057,28 @@ _eclipse() {
 
 #Simulated client/server discussion testing.
 
+_log_query() {
+	[[ "$1" == "" ]] && return 1
+	
+	tee "$1"
+	
+	return 0
+}
+
+_report_query_stdout() {
+	[[ "$1" == "" ]] && return 1
+	
+	_messagePlain_probe 'stdout: strings'
+	strings "$1"
+	
+	_messagePlain_probe 'stdout: hex'
+	xxd -p "$1" | tr -d '\n'
+	echo
+	
+	return 0
+}
+
+# ATTENTION: Overload with "core.sh" or similar.
 _prepare_query_prog() {
 	true
 }
@@ -8948,25 +11105,67 @@ _prepare_query() {
 	_prepare_query_prog "$@"
 }
 
-_queryServer() {
-	_prepare_query
+_queryServer_sequence() {
+	_start
+	
+	local currentExitStatus
+	
+	export queryType="server"
 	"$ub_queryserver" "$@"
+	currentExitStatus="$?"
+	
+	env > env_$(_uid)
+	
+	_stop "$currentExitStatus"
+}
+_queryServer() {
+	"$scriptAbsoluteLocation" _queryServer_sequence "$@"
 }
 _qs() {
 	_queryServer "$@"
 }
 
-_queryClient() {
-	_prepare_query
+_queryClient_sequence() {
+	_start
+	
+	local currentExitStatus
+	
+	export queryType="client"
 	"$ub_queryclient" "$@"
+	currentExitStatus="$?"
+	
+	env > env_$(_uid)
+	
+	_stop "$currentExitStatus"
+}
+_queryClient() {
+	"$scriptAbsoluteLocation" _queryClient_sequence "$@"
 }
 _qc() {
 	_queryClient "$@"
 }
 
-#Example only. Overload with "core.sh" or similar.
+_query_diag() {
+	echo test | _query "$@"
+	local currentExitStatus="$?"
+	
+	_messagePlain_nominal 'diag: tx.log'
+	_report_query_stdout "$queryTmp"/tx.log
+	
+	_messagePlain_nominal 'diag: xc.log'
+	_report_query_stdout "$queryTmp"/xc.log
+	
+	_messagePlain_nominal 'diag: rx.log'
+	_report_query_stdout "$queryTmp"/rx.log
+	
+	return "$currentExitStatus"
+}
+
+# ATTENTION: Overload with "core.sh" or similar.
 _query() {
-	( cd "$qc" ; _queryClient _bin cat | ( cd "$qs" ; _queryServer _bin cat | ( cd "$ub_queryserverdir" ; _queryClient _bin cat )))
+	_prepare_query
+	
+	( cd "$qc" ; _queryClient _bin cat | _log_query "$queryTmp"/tx.log | ( cd "$qs" ; _queryServer _bin cat | _log_query "$queryTmp"/xc.log | ( cd "$qc" ; _queryClient _bin cat | _log_query "$queryTmp"/rx.log ; return "${PIPESTATUS[0]}" )))
 }
 
 #Example, override with "core.sh" .
@@ -9020,8 +11219,9 @@ _ops_scope() {
 	_messagePlain_nominal '_ops_scope'
 	
 	#Find/run ops file in project dir.
-	! [[ -e "$ub_specimen"/ops ]] && _messagePlain_warn 'aU: undef: sketch ops'
-	[[ -e "$ub_specimen"/ops ]] && _messagePlain_good 'aU: found: sketch ops' && . "$ub_specimen"/ops
+	! [[ -e "$ub_specimen"/ops ]] && ! [[ -e "$ub_specimen"/ops.sh ]] && _messagePlain_warn 'aU: undef: sketch ops'
+	[[ -e "$ub_specimen"/ops ]] && _messagePlain_good 'aU: found: sketch ops: ops' && . "$ub_specimen"/ops
+	[[ -e "$ub_specimen"/ops.sh ]] && _messagePlain_good 'aU: found: sketch ops: ops.sh' && . "$ub_specimen"/ops.sh
 }
 
 #"$1" == ub_specimen
@@ -9043,6 +11243,8 @@ _start_scope() {
 	export scope="$ub_scope"
 	[[ -e "$ub_scope" ]] && _messagePlain_bad 'fail: safety: multiple scopes && single specimen' && _stop 1
 	[[ -L "$ub_scope" ]] && _messagePlain_bad 'fail: safety: multiple scopes && single specimen' && _stop 1
+	
+	#[[ -e "$ub_specimen"/.e_* ]] && _messagePlain_bad 'fail: safety: engine root scope strongly discouraged' && _stop 1
 	
 	#export ub_scope_tmp="$ub_scope"/s_"$sessionid"
 	
@@ -9348,7 +11550,7 @@ _findGit_procedure() {
 		return 0
 	fi
 	
-	find -L . -mindepth 1 -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _findGit_procedure {} "$@" \;
+	find -L . -mindepth 1 -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _findGit_procedure '{}' "$@" \;
 }
 
 #Recursively searches for directories containing ".git".
@@ -9359,7 +11561,7 @@ _findGit() {
 		return 0
 	fi
 	
-	find -L . -mindepth 1 -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _findGit_procedure {} "$@" \;
+	find -L . -mindepth 1 -maxdepth 1 -type d -exec "$scriptAbsoluteLocation" _findGit_procedure '{}' "$@" \;
 }
 
 _gitPull() {
@@ -9401,6 +11603,15 @@ _gitPullRecursive_sequence() {
 #Updates all git repositories recursively.
 _gitPullRecursive() {
 	_findGit "$scriptAbsoluteLocation" _gitPullRecursive_sequence
+}
+
+# DANGER
+# Pushes all changes as a commit described as "Upstream."
+_gitUpstream() {
+	git add -A . ; git commit -a -m "Upstream." ; git push
+}
+_gitUp() {
+	_gitUpstream
 }
 
 # DANGER
@@ -9827,19 +12038,19 @@ _fetch_raspbian_sequence() {
 	
 	cd "$safeTmp"
 	
-	[[ -e "$storageLocation"/2017-09-07-raspbian-stretch.zip ]] && cp "$storageLocation"/2017-09-07-raspbian-stretch.zip ./2017-09-07-raspbian-stretch.zip > /dev/null 2>&1
-	[[ -e ./2017-09-07-raspbian-stretch.zip ]] || _fetch 'https://downloads.raspberrypi.org/raspbian/images/raspbian-2017-09-08/2017-09-07-raspbian-stretch.zip'
+	[[ -e "$storageLocation"/2018-10-09-raspbian-stretch.zip ]] && cp "$storageLocation"/2018-10-09-raspbian-stretch.zip ./2018-10-09-raspbian-stretch.zip > /dev/null 2>&1
+	[[ -e ./2018-10-09-raspbian-stretch.zip ]] || _fetch 'https://downloads.raspberrypi.org/raspbian/images/raspbian-2018-10-11/2018-10-09-raspbian-stretch.zip'
 	
-	wget https://downloads.raspberrypi.org/raspbian/images/raspbian-2017-09-08/2017-09-07-raspbian-stretch.zip.sha256
+	wget 'https://downloads.raspberrypi.org/raspbian/images/raspbian-2018-10-11/2018-10-09-raspbian-stretch.zip.sha256'
 	
-	if ! cat 2017-09-07-raspbian-stretch.zip.sha256 | grep 2017-09-07-raspbian-stretch.zip | sha256sum -c - > /dev/null 2>&1
+	if ! cat '2018-10-09-raspbian-stretch.zip.sha256' | grep '2018-10-09-raspbian-stretch.zip' | sha256sum -c - > /dev/null 2>&1
 	then
 		echo 'invalid'
 		_stop 1
 	fi
 	
 	#Raspbian signature is difficult to authenticate. Including hash here allows some trust to be established from a Git/SSH server, as well HTTPS generally.
-	if [[ "$(cat 2017-09-07-raspbian-stretch.zip.sha256 | cut -f1 -d\  )" != "a64d742bc525b548f0435581fac5876b50a4e9ba1d1cd6433358b4ab6c7a770b" ]]
+	if [[ "$(cat 2018-10-09-raspbian-stretch.zip.sha256 | cut -f1 -d\  )" != "6e3aa76e21473ef316c0bfc9efa5c27a27fe46bd698f71de3e06e66b64a55500" ]]
 	then
 		echo 'invalid'
 		_stop 1
@@ -9848,7 +12059,7 @@ _fetch_raspbian_sequence() {
 	mkdir -p "$storageLocation"
 	
 	cd "$functionEntryPWD"
-	mv "$safeTmp"/2017-09-07-raspbian-stretch.zip "$storageLocation"
+	mv "$safeTmp"/2018-10-09-raspbian-stretch.zip "$storageLocation"
 	
 	
 	
@@ -9872,11 +12083,11 @@ _create_raspbian_sequence() {
 	
 	cd "$storageLocation"
 	
-	unzip "$scriptAbsoluteFolder"/_lib/os/2017-09-07-raspbian-stretch.zip
+	unzip "$scriptAbsoluteFolder"/_lib/os/2018-10-09-raspbian-stretch.zip
 	
 	export raspbianImageFile="$scriptLocal"/vm-raspbian.img
 	
-	[[ ! -e "$raspbianImageFile" ]] && mv "$scriptAbsoluteFolder"/_lib/os/2017-09-07-raspbian-stretch.img "$raspbianImageFile"
+	[[ ! -e "$raspbianImageFile" ]] && mv "$scriptAbsoluteFolder"/_lib/os/2018-10-09-raspbian-stretch.img "$raspbianImageFile"
 	
 	cd "$functionEntryPWD"
 	
@@ -10026,7 +12237,7 @@ _vdi_gparted() {
 	
 	sudo -n partprobe
 	
-	kdesudo gparted /dev/nbd0
+	sudo -n gparted /dev/nbd0
 	
 	sudo -n qemu-nbd -d /dev/nbd0
 }
@@ -10053,7 +12264,7 @@ _vdi_resize() {
 	
 	
 	
-	kdesudo gparted /dev/nbd0 /dev/nbd1
+	sudo -n gparted /dev/nbd0 /dev/nbd1
 	
 	sudo -n qemu-nbd -d /dev/nbd0
 	sudo -n qemu-nbd -d /dev/nbd1
@@ -11024,18 +13235,60 @@ _test_gparted() {
 }
 
 _gparted_sequence() {
+	_messageNormal 'Launch: gparted'
+	
 	_start
 	
 	_mustGetSudo
 	
-	_openLoop || _stop 1
+	_messagePlain_nominal 'Attempt: _openLoop'
+	! _openLoop && _messageFAIL
+	
+	
+	_messagePlain_nominal 'Launch: gparted'
 	
 	local imagedev
 	imagedev=$(cat "$scriptLocal"/imagedev)
 	
+	_messagePlain_probe 'blkid'
+	sudo -n blkid "$imagedev"
+	local orig_ptuuid
+	orig_ptuuid=$(sudo -n blkid -s PTUUID -o value /dev/loop0)
+	
 	sudo -n gparted "$imagedev"
 	
-	_closeLoop || _stop 1
+	_messagePlain_probe 'blkid'
+	sudo -n blkid "$imagedev"
+	local modified_ptuuid
+	modified_ptuuid=$(sudo -n blkid -s PTUUID -o value /dev/loop0)
+	
+	
+	_messagePlain_nominal 'Attempt: _closeLoop'
+	! _closeLoop && _messageFAIL
+	
+	
+	if [[ -e "$scriptLocal"/vm-raspbian.img ]]
+	then
+		_messageNormal 'Config: raspbian'
+		_messagePlain_probe_var orig_ptuuid
+		_messagePlain_probe_var modified_ptuuid
+		
+		_messagePlain_nominal 'Attempt: _openChRoot'
+		! _openChRoot && _messageFAIL
+		
+		
+		_messagePlain_nominal 'Replace: /boot/cmdline.txt'
+		_messagePlain_probe "$globalVirtFS"/../boot/cmdline.txt
+		sudo -n sed -i 's/'"$orig_ptuuid"'/'"$modified_ptuuid"'/g' "$globalVirtFS"/../boot/cmdline.txt
+		
+		_messagePlain_nominal 'Replace: /etc/fstab'
+		_messagePlain_probe "$globalVirtFS"/../fs/etc/fstab
+		sudo -n sed -i 's/'"$orig_ptuuid"'/'"$modified_ptuuid"'/g' "$globalVirtFS"/../fs/etc/fstab
+		
+		
+		_messagePlain_nominal 'Attempt: _closeChRoot'
+		! _closeChRoot && _messageFAIL
+	fi
 	
 	_stop
 }
@@ -11046,10 +13299,15 @@ _gparted() {
 
 _setupUbiquitous_here() {
 	cat << CZXWXcRMTo8EmM8i4d
+type sudo > /dev/null 2>&1 && groups | grep -E 'wheel|sudo' > /dev/null 2>&1 && sudo -n renice -n -10 -p \$\$ > /dev/null 2>&1
+
 export profileScriptLocation="$ubcoreUBdir"/ubiquitous_bash.sh
 export profileScriptFolder="$ubcoreUBdir"
 [[ "\$scriptAbsoluteLocation" != "" ]] && . "\$scriptAbsoluteLocation" --parent _importShortcuts
 [[ "\$scriptAbsoluteLocation" == "" ]] && . "\$profileScriptLocation" --profile _importShortcuts
+
+renice -n 0 -p \$\$ > /dev/null 2>&1
+
 true
 CZXWXcRMTo8EmM8i4d
 }
@@ -11113,7 +13371,7 @@ _installUbiquitous() {
 		ub_gitPullStatus="$?"
 		! cd "$localFunctionEntryPWD" && return 1
 		
-		[[ "$ub_gitPullStatus" == "0" ]] && _messagePlain_good 'pass: git pull' cd "$localFunctionEntryPWD" && return 0
+		[[ "$ub_gitPullStatus" == "0" ]] && _messagePlain_good 'pass: git pull' && cd "$localFunctionEntryPWD" && return 0
 	fi
 	_messagePlain_warn 'fail: git pull'
 	
@@ -11167,6 +13425,8 @@ _setupUbiquitous() {
 	
 	mkdir -p "$ubHome"/bin/
 	ln -sf "$ubcoreUBfile" "$ubHome"/bin/ubiquitous_bash.sh
+	ln -sf "$ubcoreUBfile" "$ubHome"/bin/_winehere
+	ln -sf "$ubcoreUBfile" "$ubHome"/bin/_winecfghere
 	
 	_setupUbiquitous_here > "$ubcoreFile"
 	! [[ -e "$ubcoreFile" ]] && _messagePlain_bad 'missing: ubcoreFile= '"$ubcoreFile" && _messageFAIL && return 1
@@ -11232,6 +13492,201 @@ _anchor() {
 	
 	return 0
 }
+
+
+_unix_renice_execDaemon() {
+	_cmdDaemon "$scriptAbsoluteLocation" _unix_renice_repeat
+}
+
+_unix_renice_daemon() {
+	_priority_idle_pid "$$" > /dev/null 2>&1
+	
+	_start
+	
+	_killDaemon
+	
+	
+	_unix_renice_execDaemon
+	while _daemonStatus
+	do
+		sleep 5
+	done
+	
+	_stop
+}
+
+_unix_renice_repeat() {
+	while true
+	do
+		_unix_renice_app > /dev/null 2>&1
+		sleep 10
+		_unix_renice_app > /dev/null 2>&1
+		sleep 10
+		_unix_renice_app > /dev/null 2>&1
+		sleep 10
+		_unix_renice_app > /dev/null 2>&1
+		sleep 10
+		_unix_renice_app > /dev/null 2>&1
+		sleep 10
+		_unix_renice_app > /dev/null 2>&1
+		sleep 10
+		_unix_renice_app > /dev/null 2>&1
+		sleep 10
+		_unix_renice_app > /dev/null 2>&1
+		sleep 10
+		_unix_renice_app > /dev/null 2>&1
+		sleep 10
+		
+		_unix_renice
+		sleep 10
+	done
+}
+
+_unix_renice() {
+	_priority_idle_pid "$$" > /dev/null 2>&1
+	
+	_unix_renice_critical > /dev/null 2>&1
+	_unix_renice_interactive > /dev/null 2>&1
+	_unix_renice_app > /dev/null 2>&1
+	_unix_renice_idle > /dev/null 2>&1
+}
+
+_unix_renice_critical() {
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	_priority_enumerate_pattern "^ksysguard$" >> "$processListFile"
+	_priority_enumerate_pattern "^ksysguardd$" >> "$processListFile"
+	_priority_enumerate_pattern "^top$" >> "$processListFile"
+	_priority_enumerate_pattern "^iotop$" >> "$processListFile"
+	_priority_enumerate_pattern "^latencytop$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^Xorg$" >> "$processListFile"
+	_priority_enumerate_pattern "^modeset$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^smbd$" >> "$processListFile"
+	_priority_enumerate_pattern "^nmbd$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^ssh$" >> "$processListFile"
+	_priority_enumerate_pattern "^sshd$" >> "$processListFile"
+	_priority_enumerate_pattern "^ssh-agent$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^sshfs$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^socat$" >> "$processListFile"
+	
+	#_priority_enumerate_pattern "^cron$" >> "$processListFile"
+	
+	local currentPID
+	
+	while read -r currentPID
+	do
+		_priority_critical_pid "$currentPID"
+	done < "$processListFile"
+	
+	rm "$processListFile"
+}
+
+_unix_renice_interactive() {
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	_priority_enumerate_pattern "^kwin$" >> "$processListFile"
+	_priority_enumerate_pattern "^pager$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^pulseaudio$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^synergy$" >> "$processListFile"
+	_priority_enumerate_pattern "^synergys$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^kactivitymanagerd$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^dbus" >> "$processListFile"
+	
+	local currentPID
+	
+	while read -r currentPID
+	do
+		_priority_interactive_pid "$currentPID"
+	done < "$processListFile"
+	
+	rm "$processListFile"
+}
+
+_unix_renice_app() {
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	_priority_enumerate_pattern "^plasmashell$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^audacious$" >> "$processListFile"
+	_priority_enumerate_pattern "^vlc$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^firefox$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^dolphin$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^kwrite$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^konsole$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^pavucontrol$" >> "$processListFile"
+	
+	local currentPID
+	
+	while read -r currentPID
+	do
+		_priority_app_pid "$currentPID"
+	done < "$processListFile"
+	
+	rm "$processListFile"
+}
+
+_unix_renice_idle() {
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	_priority_enumerate_pattern "^packagekitd$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^apt-config$" >> "$processListFile"
+	
+	#_priority_enumerate_pattern "^ModemManager$" >> "$processListFile"
+	
+	#_priority_enumerate_pattern "^sddm$" >> "$processListFile"
+	
+	#_priority_enumerate_pattern "^lpqd$" >> "$processListFile"
+	#_priority_enumerate_pattern "^cupsd$" >> "$processListFile"
+	#_priority_enumerate_pattern "^cups-browsed$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^akonadi" >> "$processListFile"
+	_priority_enumerate_pattern "^akonadi_indexing_agent$" >> "$processListFile"
+	
+	#_priority_enumerate_pattern "^kdeconnectd$" >> "$processListFile"
+	#_priority_enumerate_pattern "^kacceessibleapp$" >> "$processListFile"
+	#_priority_enumerate_pattern "^kglobalaccel5$" >> "$processListFile"
+	
+	#_priority_enumerate_pattern "^kded4$" >> "$processListFile"
+	#_priority_enumerate_pattern "^ksmserver$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^sleep$" >> "$processListFile"
+	
+	_priority_enumerate_pattern "^exim4$" >> "$processListFile"
+	_priority_enumerate_pattern "^apache2$" >> "$processListFile"
+	_priority_enumerate_pattern "^mysqld$" >> "$processListFile"
+	_priority_enumerate_pattern "^ntpd$" >> "$processListFile"
+	#_priority_enumerate_pattern "^avahi-daemon$" >> "$processListFile"
+	
+	
+	local currentPID
+	
+	while read -r currentPID
+	do
+		_priority_idle_pid "$currentPID"
+	done < "$processListFile"
+	
+	rm "$processListFile"
+}
+
 
 
 _findPort_opsauto_blockchain() {
@@ -11455,7 +13910,7 @@ _parity_attach() {
 }
 
 _setup_command_commands() {
-	_find_setupCommands -name '_synergy' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	_find_setupCommands -name '_synergy' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
 }
 
 _here_synergy_config() {
@@ -11463,9 +13918,9 @@ _here_synergy_config() {
 }
 
 _test_synergy() {
-	_getDep synergy
-	_getDep synergyc
-	_getDep synergys
+	"$scriptAbsoluteLocation" _getDep synergy
+	"$scriptAbsoluteLocation" _getDep synergyc
+	"$scriptAbsoluteLocation" _getDep synergys
 	#_getDep quicksynergy
 }
 
@@ -11673,14 +14128,16 @@ _push_synergy_sequence() {
 	_messageNormal '_synergy_sequence Launch: _synergys'
 	bash -c 'env synergyPort='"$synergyPort"' destination_DISPLAY='"$DISPLAY"' destination_AUTH='"$XAUTHORITY"' '"$scriptAbsoluteLocation"' _synergys' &
 	
-	_waitPort localhost "$synergyPort"
+	#_waitPort localhost "$synergyPort"
+	_waitPort localhost 24800
 	
 	_messageNormal 'synergy_sequence: Ready: _waitPort localhost synergyport= '"$synergyPort"
 	
 	#Service may not always be ready when port is up.
 	
 	sleep 0.8
-	if ! _checkPort localhost "$synergyPort"
+	#if ! _checkPort localhost "$synergyPort"
+	if ! _checkPort localhost 24800
 	then
 		stty echo > /dev/null 2>&1
 		_stop_safeTmp_ssh "$@"
@@ -11689,7 +14146,8 @@ _push_synergy_sequence() {
 	
 	_messageNormal '_synergy_sequence: Ready: sleep, _checkPort. Launch: _synergyc'
 	
-	_synergy_ssh -L "$synergyPort":localhost:24800 "$@" 'env synergyPort='"$synergyPort"' '"$safeTmpSSH"/cautossh' _synergyc'
+	#_synergy_ssh -L "$synergyPort":localhost:24800 "$@" 'env synergyPort='"$synergyPort"' '"$safeTmpSSH"/cautossh' _synergyc'
+	_synergy_ssh -R "$synergyPort":localhost:24800 "$@" 'env synergyPort='"$synergyPort"' '"$safeTmpSSH"/cautossh' _synergyc'
 	
 	sleep 3
 	if ! _checkPort localhost "$synergyPort"
@@ -11701,7 +14159,8 @@ _push_synergy_sequence() {
 	
 	_messageNormal '_synergy_sequence: Ready: sleep, _checkPort. Launch: _synergyc'
 	
-	_synergy_ssh -L "$synergyPort":localhost:24800 "$@" 'env synergyPort='"$synergyPort"' '"$safeTmpSSH"/cautossh' _synergyc'
+	#_synergy_ssh -L "$synergyPort":localhost:24800 "$@" 'env synergyPort='"$synergyPort"' '"$safeTmpSSH"/cautossh' _synergyc'
+	_synergy_ssh -R "$synergyPort":localhost:24800 "$@" 'env synergyPort='"$synergyPort"' '"$safeTmpSSH"/cautossh' _synergyc'
 	
 	sleep 9
 	if ! _checkPort localhost "$synergyPort"
@@ -11713,7 +14172,8 @@ _push_synergy_sequence() {
 	
 	_messageNormal '_synergy_sequence: Ready: sleep, _checkPort. Launch: _synergyc'
 	
-	_synergy_ssh -L "$synergyPort":localhost:24800 "$@" 'env synergyPort='"$synergyPort"' '"$safeTmpSSH"/cautossh' _synergyc'
+	#_synergy_ssh -L "$synergyPort":localhost:24800 "$@" 'env synergyPort='"$synergyPort"' '"$safeTmpSSH"/cautossh' _synergyc'
+	_synergy_ssh -R "$synergyPort":localhost:24800 "$@" 'env synergyPort='"$synergyPort"' '"$safeTmpSSH"/cautossh' _synergyc'
 	
 	_stop_safeTmp_ssh "$@"
 	_stop
@@ -11931,6 +14391,9 @@ _x220_vgaTablet() {
 
 #####Basic Variable Management
 
+#Reset prefixes.
+export tmpPrefix="" 
+
 #####Global variables.
 #Fixed unique identifier for ubiquitious bash created global resources, such as bootdisc images to be automaticaly mounted by guests. Should NEVER be changed.
 export ubiquitiousBashIDnano=uk4u
@@ -12031,6 +14494,10 @@ export bootTmp="$scriptLocal"
 
 #Specialized temporary directories.
 
+#MetaEngine/Engine Tmp Defaults (example, no production use)
+#export metaTmp="$scriptAbsoluteFolder""$tmpPrefix"/.m_"$sessionid"
+#export engineTmp="$scriptAbsoluteFolder""$tmpPrefix"/.e_"$sessionid"
+
 # WARNING: Only one user per (virtual) machine. Requires _prepare_abstract . Not default.
 # DANGER: Mandatory strict directory 8.3 compliance for this variable! Long subdirectory/filenames permitted thereafter.
 # DANGER: Permitting multi-user access to this directory may cause unexpected behavior, including inconsitent file ownership.
@@ -12055,6 +14522,8 @@ export daemonPidFile="$scriptLocal"/.bgpid
 export vncPasswdFile="$safeTmp"/.vncpasswd
 
 #Network Defaults
+[[ "$netTimeout" == "" ]] && export netTimeout=18
+
 export AUTOSSH_FIRST_POLL=45
 export AUTOSSH_POLL=45
 #export AUTOSSH_GATETIME=0
@@ -12132,14 +14601,18 @@ export globalBuildDir="$scriptLocal"/b
 export globalBuildFS="$globalBuildDir"/fs
 export globalBuildTmp="$globalBuildDir"/tmp
 
-
-#Reset prefixes.
-export tmpPrefix=""
-
 #Machine information.
-export hostMemoryTotal=$(cat /proc/meminfo | grep MemTotal | tr -cd '[[:digit:]]')
-export hostMemoryAvailable=$(cat /proc/meminfo | grep MemAvailable | tr -cd '[[:digit:]]')
-export hostMemoryQuantity="$hostMemoryTotal"
+
+if [[ -e "/proc/meminfo" ]]
+then
+	export hostMemoryTotal=$(cat /proc/meminfo | grep MemTotal | tr -cd '[[:digit:]]')
+	export hostMemoryAvailable=$(cat /proc/meminfo | grep MemAvailable | tr -cd '[[:digit:]]')
+	export hostMemoryQuantity="$hostMemoryTotal"
+else
+	export hostMemoryTotal="384000"
+	export hostMemoryAvailable="256000"
+	export hostMemoryQuantity="$hostMemoryTotal"
+fi
 
 export virtGuestUserDrop="ubvrtusr"
 export virtGuestUser="$virtGuestUserDrop"
@@ -12191,13 +14664,31 @@ export keepFakeHome="true"
 _vars_vmMemoryAllocationDefault() {
 	export vmMemoryAllocationDefault=96
 	
+	
+	# Invalid.
+	[[ "$hostMemoryQuantity" -lt "64000" ]] && return 1
+	! [[ "$hostMemoryQuantity" -ge "64000" ]] && return 1
+	
+	
+	# Embedded host typical.
 	[[ "$hostMemoryQuantity" -lt "500000" ]] && export vmMemoryAllocationDefault=256 && return 1
 	
+	# Obsolete hardware or guest typical.
 	[[ "$hostMemoryQuantity" -lt "1256000" ]] && export vmMemoryAllocationDefault=512 && return 0
 	[[ "$hostMemoryQuantity" -lt "1768000" ]] && export vmMemoryAllocationDefault=1024 && return 0
-	[[ "$hostMemoryQuantity" -lt "8000000" ]] && export vmMemoryAllocationDefault=1512 && return 0
+	[[ "$hostMemoryQuantity" -lt "6000000" ]] && export vmMemoryAllocationDefault=1512 && return 0
 	
-	[[ "$hostMemoryQuantity" -ge "14000000" ]] && export vmMemoryAllocationDefault=1512 && return 0
+	# Modern host typical.
+	[[ "$hostMemoryQuantity" -lt "7000000" ]] && export vmMemoryAllocationDefault=2048 && return 0
+	[[ "$hostMemoryQuantity" -lt "18000000" ]] && export vmMemoryAllocationDefault=2560 && return 0
+	[[ "$hostMemoryQuantity" -lt "34000000" ]] && export vmMemoryAllocationDefault=3072 && return 0
+	
+	# Workstation typical.
+	[[ "$hostMemoryQuantity" -lt "72000000" ]] && export vmMemoryAllocationDefault=4096 && return 0
+	[[ "$hostMemoryQuantity" -lt "132000000" ]] && export vmMemoryAllocationDefault=4096 && return 0
+	
+	# Atypical host.
+	export vmMemoryAllocationDefault=4096 && return 0
 	
 	return 1
 }
@@ -12265,6 +14756,40 @@ _get_reversePorts
 export reversePorts=("${matchingReversePorts[@]}")
 export EMBEDDED="$matchingEMBEDDED"
 
+
+# WARNING: Any changes to output text format *will* break API compatibility.
+# Example usage: currentPortList=( $(./ubiquitous_bash.sh _show_reversePorts '*') ) ; echo ${currentPortList[@]} ; echo ${currentPortList[0]} ; echo ${currentPortList[1]}
+_show_reversePorts_sequence() {
+	_get_reversePorts "$1"
+	echo "${matchingReversePorts[@]}"
+}
+_show_reversePorts() {
+	"$scriptAbsoluteLocation" _show_reversePorts_sequence "$@"
+}
+_show_reversePorts_single_sequence() {
+	_get_reversePorts "$1"
+	echo "${matchingReversePorts[0]}"
+}
+_show_reversePorts_single() {
+	"$scriptAbsoluteLocation" _show_reversePorts_single_sequence "$@"
+}
+_show_offset_reversePorts_sequence() {
+	_get_reversePorts "$1"
+	_offset_reversePorts
+	echo "${matchingOffsetPorts[@]}"
+}
+_show_offset_reversePorts() {
+	"$scriptAbsoluteLocation" _show_offset_reversePorts_sequence "$@"
+}
+_show_offset_reversePorts_single_sequence() {
+	_get_reversePorts "$1"
+	_offset_reversePorts
+	echo "${matchingOffsetPorts[0]}"
+}
+_show_offset_reversePorts_single() {
+	"$scriptAbsoluteLocation" _show_offset_reversePorts_single_sequence "$@"
+}
+
 export keepKeys_SSH=true
 
 _prepare_ssh() {
@@ -12317,6 +14842,13 @@ _unset_vbox() {
 
 _reset_vboxLabID() {
 	[[ "$VBOX_ID_FILE" == "" ]] && _messagePlain_bad 'blank: VBOX_ID_FILE' && return 1
+	
+	if [[ "$ub_VBoxLab_prepare" == "true" ]]
+	then
+		_messagePlain_warn 'warn: path has changed and lock not reset'
+		_messagePlain_warn 'user: recommend: _labVBox_migrate'
+		return 0
+	fi
 	
 	rm -f "$VBOX_ID_FILE" > /dev/null 2>&1
 	
@@ -12382,7 +14914,13 @@ _prepare_vbox() {
 }
 
 _prepare_lab_vbox() {
+	export ub_VBoxLab_prepare='true'
+	local currentExitStatus
 	_prepare_vbox "$scriptLocal"
+	currentExitStatus="$?"
+	export ub_VBoxLab_prepare='false'
+	
+	return "$currentExitStatus"
 }
 #_prepare_lab_vbox
 
@@ -12568,6 +15106,1976 @@ _prepare_docker() {
 #_prepare_docker
 
 
+_test_metaengine_sequence() {
+	! _start_metaengine_host && _stop 1
+	! _stop_metaengine_allow && _stop 1
+	
+	! _reset_me_name && _stop 1
+	! _assign_me_coordinates "" "" "" "" "" "" 0 1 0 1 1 0 && _stop 1
+	! _set_me_null_in && _stop 1
+	
+	
+	! _reset_me_name && _stop 1
+	! _set_me_null_in && _stop 1
+	! _set_me_rand_out && _stop 1
+	! _cycle_me && _stop 1
+	! _set_me_null_out && _stop 1
+	
+	! _reset_me_name && _stop 1
+	! _set_me_null_in && _stop 1
+	! _assign_me_name_out "1" && _stop 1
+	! _cycle_me && _stop 1
+	! _assign_me_name_out "2" && _stop 1
+	! _cycle_me && _stop 1
+	! _assign_me_name_out "3" && _stop 1
+	! _cycle_me && _stop 1
+	! _set_me_null_out && _stop 1
+	
+	! _stop_metaengine_allow && _stop 1
+	_stop
+}
+
+_test_metaengine() {
+	_getDep mkfifo
+	
+	if ! "$scriptAbsoluteLocation" _test_metaengine_sequence > /dev/null 2>&1
+	then
+		echo 'fail: metaengine: internal'
+		_stop 1
+	fi
+}
+
+_report_metaengine() {
+	_messagePlain_nominal 'init: _report_metaengine'
+	
+	[[ ! -e "$metaTmp" ]] && _messagePlain_bad 'missing: metaTmp'
+	
+	
+	[[ "$metaBase" == "" ]] && _messagePlain_warn 'blank: metaBase'
+	[[ "$metaObjName" == "" ]] && _messagePlain_warn 'blank: metaObjName'
+	
+	#[[ "$metaType" == "" ]] && _messagePlain_warn 'blank: metaID'
+	
+	[[ "$metaID" == "" ]] && _messagePlain_warn 'blank: metaID'
+	
+	[[ "$metaPath" == "" ]] && _messagePlain_warn 'blank: metaPath'
+	
+	[[ "$metaDir_tmp" == "" ]] && _messagePlain_warn 'blank: metaDir_tmp'
+	[[ "$metaDir_base" == "" ]] && _messagePlain_warn 'blank: metaDir_base'
+	[[ "$metaDir" == "" ]] && _messagePlain_warn 'blank: metaDir'
+	
+	[[ "$metaReg" == "" ]] && _messagePlain_warn 'blank: metaReg'
+	
+	[[ "$metaConfidence" == "" ]] && _messagePlain_warn 'blank: metaConfidence'
+	
+	[[ ! -e "$metaBase" ]] && _messagePlain_warn 'missing: metaBase'
+	
+	[[ ! -e "$metaDir_tmp" ]] && _messagePlain_warn 'missing: metaDir_tmp'
+	[[ ! -e "$metaDir_base" ]] && _messagePlain_warn 'missing: metaDir_base'
+	[[ ! -e "$metaDir" ]] && _messagePlain_warn 'missing: metaDir'
+	
+	[[ ! -e "$metaReg" ]] && _messagePlain_warn 'missing: metaReg'
+	
+	[[ ! -e "$metaDir"/ao ]] && _messagePlain_warn 'missing: "$metaDir"/ao'
+	[[ ! -e "$metaDir"/bo ]] && _messagePlain_warn 'missing: "$metaDir"/bo'
+	
+	[[ ! -e "$in_me_a_path" ]] && _messagePlain_warn 'missing: in_me_a_path'
+	[[ ! -e "$in_me_b_path" ]] && _messagePlain_warn 'missing: in_me_b_path'
+}
+
+_report_metaengine_relink_in() {
+	[[ ! -e "$metaDir"/ai ]] && _messagePlain_warn 'missing: "$metaDir"/ai'
+	[[ ! -e "$metaDir"/bi ]] && _messagePlain_warn 'missing: "$metaDir"/bi'
+}
+
+_report_metaengine_relink_out() {
+	[[ ! -e "$out_me_a_path" ]] && _messagePlain_warn 'missing: out_me_a_path'
+	[[ ! -e "$out_me_b_path" ]] && _messagePlain_warn 'missing: out_me_b_path'
+}
+
+_message_me_vars() {
+	_message_me_set
+	_message_me_coordinates
+	_message_me_name
+}
+
+_message_me_set() {
+	_messagePlain_probe '########## SET'
+	
+	_messageVar metaBase
+	_messageVar metaObjName
+	echo
+	_messageVar metaID
+	echo
+	_messageVar metaPath
+	_messageVar metaDir_tmp
+	_messageVar metaDir_base
+	_messageVar metaDir
+	_messageVar metaReg
+	_messageVar metaConfidence
+	echo
+	_message_me_path
+}
+
+_message_me_path() {
+	_messagePlain_probe '########## PATH'
+	_messageVar in_me_a_path
+	_messageVar in_me_b_path
+	_messageVar out_me_a_path
+	_messageVar out_me_b_path
+	echo
+}
+
+_message_me_coordinates() {
+	_messagePlain_probe '########## IO - COORDINATES'
+	_messagePlain_probe '##### ai'
+	_messageVar in_me_a_z
+	_messageVar in_me_a_x
+	_messageVar in_me_a_y
+	echo
+	_messagePlain_probe '##### bi'
+	_messageVar in_me_b_z
+	_messageVar in_me_b_x
+	_messageVar in_me_b_y
+	echo
+	_messagePlain_probe '##### ao'
+	_messageVar out_me_a_z
+	_messageVar out_me_a_x
+	_messageVar out_me_a_y
+	echo
+	_messagePlain_probe '##### bo'
+	_messageVar out_me_b_z
+	_messageVar out_me_b_x
+	_messageVar out_me_b_y
+	echo
+}
+
+_message_me_name() {
+	_messagePlain_probe '########## IO - NAMES'
+	_messageVar in_me_a_name
+	_messageVar in_me_b_name
+	_messageVar out_me_a_name
+	_messageVar out_me_b_name
+}
+
+_me_header_here() {
+	cat << CZXWXcRMTo8EmM8i4d
+#!/usr/bin/env bash
+
+#Green. Working as expected.
+_messagePlain_good() {
+	echo -e -n '\E[0;32m '
+	echo -n "\$@"
+	echo -e -n ' \E[0m'
+	echo
+	return 0
+}
+
+#Yellow. May or may not be a problem.
+_messagePlain_warn() {
+	echo -e -n '\E[1;33m '
+	echo -n "\$@"
+	echo -e -n ' \E[0m'
+	echo
+	return 0
+}
+
+#Red. Will result in missing functionality, reduced performance, etc, but not necessarily program failure overall.
+_messagePlain_bad() {
+	echo -e -n '\E[0;31m '
+	echo -n "\$@"
+	echo -e -n ' \E[0m'
+	echo
+	return 0
+}
+
+CZXWXcRMTo8EmM8i4d
+}
+
+_me_var_here_script() {
+	cat << CZXWXcRMTo8EmM8i4d
+	
+export scriptAbsoluteLocation="$scriptAbsoluteLocation"
+export scriptAbsoluteFolder="$scriptAbsoluteFolder"
+export sessionid="$sessionid"
+
+CZXWXcRMTo8EmM8i4d
+}
+
+_me_var_here_prog() {
+	cat << CZXWXcRMTo8EmM8i4d
+CZXWXcRMTo8EmM8i4d
+}
+
+_me_var_here() {
+	_me_var_here_script
+
+	cat << CZXWXcRMTo8EmM8i4d
+
+#Special. Signals do NOT reset metaID .
+export metaEmbed="true"
+
+#near equivalent: _set_me_host
+	export metaBase="$metaBase"
+	export metaObjName="$metaObjName"
+	export metaTmp="$metaTmp"
+	#export metaTmp="$scriptAbsoluteFolder""$tmpPrefix"/.m_"$sessionid"
+	export metaProc="$metaProc"
+	# WARNING: Setting metaProc to a value not including sessionid disables automatic removal by default!
+	#export metaProc="$metaBase""$tmpPrefix"/.m_"$sessionid"
+
+export metaType="$metaType"
+
+export metaID="$metaID"
+
+export metaPath="$metaPath"
+
+#export metaDir_tmp="$metaTmp"/"$metaPath"
+#export metaDir_base="$metaProc"/"$metaPath"
+
+#near equivalent _set_me_dir
+	#export metaDir_tmp="$metaTmp"/"$metaPath"
+	#export metaDir_base="$metaProc"/"$metaPath"
+	#export metaDir="$metaDir_tmp"
+	export metaDir_tmp="$metaDir_tmp"
+	export metaDir_base="$metaDir_base"
+	export metaDir="$metaDir"
+	#[[ "$metaType" == "base" ]] && export metaDir="$metaDir_base" && _messagePlain_warn 'metaType= base'
+	#[[ "$metaType" == "" ]] && _messagePlain_good 'metaType= '
+	[[ "$metaType" == "base" ]] && _messagePlain_warn 'metaType= base'
+	[[ "$metaType" == "" ]] && _messagePlain_good 'metaType= '
+
+export metaReg="$metaReg"
+export metaConfidence="$metaConfidence"
+
+export in_me_a_path="$in_me_a_path"
+export in_me_b_path="$in_me_b_path"
+export out_me_a_path="$out_me_a_path"
+export out_me_b_path="$out_me_b_path"
+
+
+
+CZXWXcRMTo8EmM8i4d
+	
+	_me_var_here_prog "$@"
+}
+
+_me_embed_here() {
+	_me_header_here
+	
+	_me_var_here
+	
+	cat << CZXWXcRMTo8EmM8i4d
+
+
+. "$scriptAbsoluteLocation" --embed "\$@"
+CZXWXcRMTo8EmM8i4d
+}
+
+_me_command_here() {
+	_me_header_here
+	
+	_me_var_here
+	
+	#cat << CZXWXcRMTo8EmM8i4d
+#
+#
+#. "$scriptAbsoluteLocation" --embed "$1" "\$@"
+#CZXWXcRMTo8EmM8i4d
+
+echo -n '. "$scriptAbsoluteLocation" --embed'
+
+local currentArg
+for currentArg in "$@"
+do
+	echo -n ' '
+	_safeEcho \""$currentArg"\"
+done
+
+echo ' "$@"'
+
+cat << CZXWXcRMTo8EmM8i4d
+# Mark task complete, if part of parallel thread set.
+if [[ "$processThreadID" != "" ]]
+then
+	_complete_me "$processThreadID"
+	rm -f "$metaProc"/_active/"$processThreadID" > /dev/null 2>&1
+fi
+CZXWXcRMTo8EmM8i4d
+
+}
+
+_me_command_here_write() {
+	mkdir -p "$metaDir"
+	_me_command_here "$@" > "$metaDir"/me.sh
+	chmod 700 "$metaDir"/me.sh
+}
+_me_command_here_write_noclobber() {
+	[[ -e "$metaDir"/me.sh ]] && return 0
+	
+	_me_command_here_write "$@"
+}
+_me_command() {
+	_messageNormal 'write: '"$metaObjName"
+	_set_me
+	_me_command_here_write "$@"
+	
+	_messageNormal 'fork: '"$metaObjName"': '"$metaDir"/me.sh
+	"$metaDir"/me.sh &
+}
+
+
+
+# ATTENTION: Declare with "core.sh" or similar if appropriate.
+# WARNING: Any "$tmpPrefix" will be reset before metaengine unless explicitly declared here.
+#_set_me_host_prefix() {
+#	export metaPrefix="prefix"
+#}
+
+_set_me_host() {
+	_set_me_base
+	
+	_tryExec "_set_me_host_prefix"
+	
+	export metaTmp="$scriptAbsoluteFolder""$metaPrefix"/.m_"$sessionid"
+	
+	# WARNING: Setting metaProc to a value not including sessionid disables automatic removal by default!
+	# WARNING: Setting metaProc to a value not accepted by "_safeRMR" disables automatic removal by default!
+	export metaProc="$scriptAbsoluteFolder""$metaPrefix"/.m_"$sessionid"
+	[[ "$metaType" == "base" ]] && export metaProc="$metaBase""$metaPrefix"/.m_"$sessionid"
+	#[[ "$metaType" == "" ]] && export metaProc="$scriptAbsoluteFolder""$metaPrefix"/.m_"$sessionid"
+}
+
+_reset_me_host() {
+	_reset_me_base
+	
+	export metaTmp=
+	export metaProc=
+}
+
+_set_me() {
+	_messagePlain_nominal 'init: _set_me'
+	
+	#_set_me_base
+	#_set_me_objname
+	
+	_set_me_uid
+	
+	_set_me_path
+	_set_me_dir
+	_set_me_reg
+	
+	_set_me_confidence
+	
+	_set_me_io_in
+	_set_me_io_out
+	
+	_message_me_set
+}
+
+_reset_me() {
+	#_reset_me_base
+	#_reset_me_objname
+	
+	#_reset_me_host
+	
+	_reset_me_uid
+	
+	_reset_me_path
+	_reset_me_dir
+	_reset_me_reg
+	
+	_reset_me_confidence
+	
+	_reset_me_name
+	_reset_me_coordinates
+	
+	_reset_me_type
+	
+	_reset_me_io
+	
+	_stop_metaengine_allow
+}
+
+_set_me_uid() {
+	[[ "$metaEmbed" == "true" ]] && return 0
+	export metaID=$(_uid)
+}
+
+_reset_me_uid() {
+	export metaID=
+}
+
+_set_me_path() {
+	export metaPath="$metaID"
+}
+
+_reset_me_path() {
+	export metaPath=
+}
+
+# ATTENTION: Overload with "core.sh" if appropriate.
+_set_me_dir() {
+	export metaDir_tmp="$metaTmp"/"$metaPath"
+	
+	export metaDir_base="$metaProc"/"$metaPath"
+	
+	export metaDir="$metaDir_tmp"
+	[[ "$metaType" == "base" ]] && export metaDir="$metaDir_base" && _messagePlain_warn 'metaDir= base'
+	[[ "$metaType" == "" ]] && _messagePlain_good 'metaDir= tmp'
+}
+
+_reset_me_dir() {
+	export metaDir_tmp=
+	export metaDir_base=
+	
+	export metaDir=
+}
+
+# ATTENTION: Overload with "core.sh" if appropriate.
+_set_me_reg() {
+	export metaReg="$metaTmp"/_reg
+	[[ "$metaType" == "base" ]] && export metaReg="$metaBase"/_reg && _messagePlain_warn 'metaReg= base'
+	[[ "$metaType" == "" ]] && _messagePlain_good 'metaReg= tmp'
+}
+
+_reset_me_reg() {
+	export metaReg=
+}
+
+#Intended to signal task completion, allowing shutdown of processing chain.
+_set_me_confidence() {
+	export metaConfidence="$metaReg"/confidence
+}
+
+_reset_me_confidence() {
+	export metaConfidence=
+}
+
+
+
+# ATTENTION: Overload with "core.sh" if appropriate.
+_set_me_base() {
+	export metaBase=
+	
+	export metaBase="$outerPWD"
+	
+	#[[ "$@" != "" ]] && export metaengine_base=$(_searchBaseDir "$@")
+	#[[ "$metaengine_base" == "" ]] && export metaengine_base=$(_searchBaseDir "$@" "$virtUserPWD")
+	
+	#export metaengine_base="$scriptAbsoluteLocation"
+}
+
+_reset_me_base() {
+	export metaBase=
+}
+
+# ATTENTION: Overload with "core.sh" if appropriate.
+# WARNING: No default production use.
+_set_me_objname() {
+	export metaObjName=
+	
+	export metaObjName="$objectName"
+}
+
+_reset_me_objname() {
+	export metaObjName=
+}
+
+
+
+_reset_me_coordinates_ai() {
+	export in_me_a_x=
+	export in_me_a_y=
+	export in_me_a_z=
+}
+
+_reset_me_coordinates_bi() {
+	export in_me_b_x=
+	export in_me_b_y=
+	export in_me_b_z=
+}
+
+_reset_me_coordinates_ao() {
+	export out_me_a_x=
+	export out_me_a_y=
+	export out_me_a_z=
+}
+
+_reset_me_coordinates_bo() {
+	export out_me_b_x=
+	export out_me_b_y=
+	export out_me_b_z=
+}
+
+_reset_me_coordinates() {
+	_reset_me_coordinates_ai
+	_reset_me_coordinates_bi
+	_reset_me_coordinates_ao
+	_reset_me_coordinates_bo
+}
+
+
+_check_me_coordinates_ai() {
+	[[ "$in_me_a_x" == "" ]] && return 1
+	[[ "$in_me_a_y" == "" ]] && return 1
+	[[ "$in_me_a_z" == "" ]] && return 1
+	return 0
+}
+
+_check_me_coordinates_bi() {
+	[[ "$in_me_b_x" == "" ]] && return 1
+	[[ "$in_me_b_y" == "" ]] && return 1
+	[[ "$in_me_b_z" == "" ]] && return 1
+	return 0
+}
+
+_check_me_coordinates_ao() {
+	[[ "$out_me_a_x" == "" ]] && return 1
+	[[ "$out_me_a_y" == "" ]] && return 1
+	[[ "$out_me_a_z" == "" ]] && return 1
+	return 0
+}
+
+_check_me_coordinates_bo() {
+	[[ "$out_me_b_x" == "" ]] && return 1
+	[[ "$out_me_b_y" == "" ]] && return 1
+	[[ "$out_me_b_z" == "" ]] && return 1
+	return 0
+}
+
+_check_me_coordinates_in() {
+	! _check_me_coordinates_ai && return 1
+	! _check_me_coordinates_bi && return 1
+	return 0
+}
+
+_check_me_coordinates_out() {
+	! _check_me_coordinates_ao && return 1
+	! _check_me_coordinates_bo && return 1
+	return 0
+}
+
+_check_me_coordinates() {
+	! _check_me_coordinates_ai && return 1
+	! _check_me_coordinates_bi && return 1
+	! _check_me_coordinates_ao && return 1
+	! _check_me_coordinates_bo && return 1
+	return 0
+}
+
+_reset_me_name_ai() {
+	export in_me_a_name=
+}
+
+_reset_me_name_bi() {
+	export in_me_b_name=
+}
+
+_reset_me_name_ao() {
+	export out_me_a_name=
+}
+
+_reset_me_name_bo() {
+	export out_me_b_name=
+}
+
+_reset_me_rand() {
+	_reset_me_name_ai
+	_reset_me_name_bi
+	_reset_me_name_ao
+	_reset_me_name_bo
+}
+_reset_me_name() {
+	_reset_me_name_ai
+	_reset_me_name_bi
+	_reset_me_name_ao
+	_reset_me_name_bo
+}
+
+_check_me_name_in() {
+	[[ "$in_me_a_name" == "" ]] && return 1
+	[[ "$in_me_b_name" == "" ]] && return 1
+	return 0
+}
+
+_check_me_name_out() {
+	[[ "$out_me_a_name" == "" ]] && return 1
+	[[ "$out_me_b_name" == "" ]] && return 1
+	return 0
+}
+
+_check_me_name() {
+	[[ "$in_me_a_name" == "" ]] && return 1
+	[[ "$in_me_b_name" == "" ]] && return 1
+	[[ "$out_me_a_name" == "" ]] && return 1
+	[[ "$out_me_b_name" == "" ]] && return 1
+	return 0
+}
+_check_me_rand() {
+	_check_me_name
+}
+
+
+_set_me_io_name_in() {
+	_messagePlain_nominal 'init: _set_me_io_name_in'
+	
+	# Optional feature. While used, must must contain at least one file/dir.
+	export in_me_a_active="$metaReg"/name/"$in_me_a_name"/_active
+	export in_me_a_active_tmp="$in_me_a_active"_tmp
+	export in_me_b_active="$metaReg"/name/"$in_me_b_name"/_active
+	export in_me_b_active_tmp="$in_me_b_active"_tmp
+	export in_me_active="$in_me_a_active"
+	export in_me_active_tmp="$in_me_a_active_tmp"
+	
+	export in_me_a_path="$metaReg"/name/"$in_me_a_name"/ao
+		[[ "$in_me_a_name" == "null" ]] && export in_me_a_path=/dev/null
+	export in_me_b_path="$metaReg"/name/"$in_me_b_name"/bo
+		[[ "$in_me_b_name" == "null" ]] && export in_me_b_path=/dev/null
+	
+	_messagePlain_good 'return: success'
+	return 0
+}
+
+_set_me_io_name_out() {
+	_messagePlain_nominal 'init: _set_me_io_name_out'
+	
+	# Optional feature. While used, must must contain at least one file/dir.
+	export out_me_a_active="$metaReg"/name/"$out_me_a_name"/_active
+	export out_me_a_active_tmp="$out_me_a_active"_tmp
+	export out_me_b_active="$metaReg"/name/"$out_me_b_name"/_active
+	export out_me_b_active_tmp="$out_me_b_active"_tmp
+	export out_me_active="$out_me_a_active"
+	export out_me_active_tmp="$out_me_a_active_tmp"
+	
+	export out_me_a_path="$metaReg"/name/"$out_me_a_name"/ao
+		[[ "$out_me_a_name" == "null" ]] && export out_me_a_path=/dev/null
+	export out_me_b_path="$metaReg"/name/"$out_me_b_name"/bo
+		[[ "$out_me_b_name" == "null" ]] && export out_me_b_path=/dev/null
+	
+	_messagePlain_good 'return: success'
+	return 0
+}
+
+_set_me_io_coordinates_in() {
+	_messagePlain_nominal 'init: _set_me_io_coordinates_in'
+	
+	# WARNING: Untested.
+	# Optional feature. While used, must must contain at least one file/dir.
+	export in_me_a_active="$metaReg"/grid/_active/"$in_me_a_z"/"$in_me_a_x"/"$in_me_a_y"
+	export in_me_a_active_tmp="$in_me_a_active"_tmp
+	export in_me_b_active="$metaReg"/grid/_active/"$in_me_b_z"/"$in_me_b_x"/"$in_me_b_y"
+	export in_me_b_active_tmp="$in_me_b_active"_tmp
+	export in_me_active="$in_me_a_active"
+	export in_me_active_tmp="$in_me_a_active_tmp"
+	
+	export in_me_a_path="$metaReg"/grid/"$in_me_a_z"/"$in_me_a_x"/"$in_me_a_y"
+	export in_me_b_path="$metaReg"/grid/"$in_me_b_z"/"$in_me_b_x"/"$in_me_b_y"
+	
+	_messagePlain_good 'return: success'
+	return 0
+}
+
+_set_me_io_coordinates_out() {
+	_messagePlain_nominal 'init: _set_me_io_coordinates_out'
+	
+	# WARNING: Untested.
+	# Optional feature. While used, must must contain at least one file/dir.
+	export out_me_a_active="$metaReg"/grid/_active/"$out_me_a_z"/"$out_me_a_x"/"$out_me_a_y"
+	export out_me_a_active_tmp="$out_me_a_active"_tmp
+	export out_me_b_active="$metaReg"/grid/_active/"$out_me_b_z"/"$out_me_b_x"/"$out_me_b_y"
+	export out_me_b_active_tmp="$out_me_b_active"_tmp
+	export out_me_active="$out_me_a_active"
+	export out_me_active_tmp="$out_me_a_active_tmp"
+	
+	export out_me_a_path="$metaReg"/grid/"$out_me_a_z"/"$out_me_a_x"/"$out_me_a_y"
+	export out_me_b_path="$metaReg"/grid/"$out_me_b_z"/"$out_me_b_x"/"$out_me_b_y"
+	
+	_messagePlain_good 'return: success'
+	return 0
+}
+
+#No production use.
+_set_me_io_coordinates() {
+	_messagePlain_nominal 'init: _set_me_io_coordinates'
+	
+	export in_me_a_path="$metaReg"/grid/"$in_me_a_z"/"$in_me_a_x"/"$in_me_a_y"
+	export in_me_b_path="$metaReg"/grid/"$in_me_b_z"/"$in_me_b_x"/"$in_me_b_y"
+	export out_me_a_path="$metaReg"/grid/"$out_me_a_z"/"$out_me_a_x"/"$out_me_a_y"
+	export out_me_b_path="$metaReg"/grid/"$out_me_b_z"/"$out_me_b_x"/"$out_me_b_y"
+	
+	_messagePlain_good 'return: success'
+	return 0
+}
+
+_set_me_io_in() {
+	_messagePlain_nominal 'init: _set_me_io'
+	
+	! _check_me_coordinates_in && ! _check_me_name_in && _messageError 'FAIL: invalid IO coordinates and names' && _stop 1
+	
+	#_check_me_name && _messagePlain_good 'valid: name' && _set_me_io_name && _messagePlain_good 'return: success' && return 0
+	_check_me_name_in && _messagePlain_good 'valid: name_in' && _set_me_io_name_in && _messagePlain_good 'return: success' && return 0
+	
+	#_check_me_coordinates && _messagePlain_good 'valid: coordinates' && _set_me_io_coordinates && _messagePlain_good 'return: success' && return 0
+	_check_me_coordinates_in && _messagePlain_good 'valid: coordinates_in' && _set_me_io_coordinates_in && _messagePlain_good 'return: success' && return 0
+	
+	_messageError 'FAIL: undefined failure'
+	_stop 1
+}
+
+_set_me_io_out() {
+	_messagePlain_nominal 'init: _set_me_io'
+	
+	! _check_me_coordinates_out && ! _check_me_name_out && _messageError 'FAIL: invalid IO coordinates and names' && _stop 1
+	
+	#_check_me_name && _messagePlain_good 'valid: name' && _set_me_io_name && _messagePlain_good 'return: success' && return 0
+	_check_me_name_out && _messagePlain_good 'valid: name_out' && _set_me_io_name_out && _messagePlain_good 'return: success' && return 0
+	
+	#_check_me_coordinates && _messagePlain_good 'valid: coordinates' && _set_me_io_coordinates && _messagePlain_good 'return: success' && return 0
+	_check_me_coordinates_out && _messagePlain_good 'valid: coordinates_out' && _set_me_io_coordinates_out && _messagePlain_good 'return: success' && return 0
+	
+	_messageError 'FAIL: undefined failure'
+	_stop 1
+}
+
+#No production use.
+_set_me_io() {
+	_messagePlain_nominal 'init: _set_me_io'
+	
+	! _check_me_coordinates && ! _check_me_name && _messageError 'FAIL: invalid IO coordinates and names' && _stop 1
+	
+	#_check_me_name && _messagePlain_good 'valid: name' && _set_me_io_name && _messagePlain_good 'return: success' && return 0
+	_check_me_name_in && _messagePlain_good 'valid: name_in' && _set_me_io_name_in && _messagePlain_good 'return: success' && return 0
+	_check_me_name_out && _messagePlain_good 'valid: name_out' && _set_me_io_name_out && _messagePlain_good 'return: success' && return 0
+	
+	#_check_me_coordinates && _messagePlain_good 'valid: coordinates' && _set_me_io_coordinates && _messagePlain_good 'return: success' && return 0
+	_check_me_coordinates_in && _messagePlain_good 'valid: coordinates_in' && _set_me_io_coordinates_in && _messagePlain_good 'return: success' && return 0
+	_check_me_coordinates_out && _messagePlain_good 'valid: coordinates_out' && _set_me_io_coordinates_out && _messagePlain_good 'return: success' && return 0
+	
+	_messageError 'FAIL: undefined failure'
+	_stop 1
+}
+
+_reset_me_io() {
+	export in_me_a_path=
+	export in_me_b_path=
+	export out_me_a_path=
+	export out_me_b_path=
+}
+
+
+
+_assign_me_objname() {
+	export metaObjName="$1"
+	_messagePlain_nominal 'set: metaObjName= '"$metaObjName"
+}
+
+_set_me_type_tmp() {
+	export metaType=""
+	_messagePlain_nominal 'set: metaType= (tmp)'"$metaType"
+}
+
+_set_me_type_base() {
+	export metaType="base"
+	_messagePlain_nominal 'set: metaType= '"$metaType"
+}
+
+_reset_me_type() {
+	export metaType=
+}
+
+
+_cycle_me_name() {
+	export in_me_a_name="$out_me_a_name"
+	export in_me_b_name="$out_me_b_name"
+	_set_me_rand_out
+	
+	_messagePlain_nominal 'cycle: in_me_a_name= (out_me_a_name)'"$in_me_a_name"' ''cycle: in_me_b_name= (out_me_b_name)'"$in_me_b_name"
+	_messagePlain_probe 'rand: out_me_a_name= '"$out_me_a_name"' ''rand: out_me_b_name= '"$out_me_b_name"
+}
+_cycle_me() {
+	_cycle_me_name
+}
+
+
+_assign_me_name_ai() {
+	export in_me_a_name="$1"
+}
+
+_assign_me_name_bi() {
+	export in_me_b_name="$1"
+}
+
+_assign_me_name_ao() {
+	export out_me_a_name="$1"
+}
+
+_assign_me_name_bo() {
+	export out_me_b_name="$1"
+}
+
+_assign_me_name_in() {
+	_assign_me_name_ai "$1"
+	_assign_me_name_bi "$1"
+}
+
+_assign_me_name_out() {
+	_assign_me_name_ao "$1"
+	_assign_me_name_bo "$1"
+}
+
+
+
+# WARNING: Coordinate assignment by centroid for 3D pipeline representation ONLY. Detailed spatial data to be completely represented in binary formatted named buffers.
+#_assign_me_coordinates aiX aiY aiZ biX biY biZ aoX aoY aoZ boX boY boZ
+_assign_me_coordinates() {
+	_assign_me_coordinates_ai "$1" "$2" "$3"
+		shift ; shift ; shift
+	_assign_me_coordinates_bi "$1" "$2" "$3"
+		shift ; shift ; shift
+	_assign_me_coordinates_ao "$1" "$2" "$3"
+		shift ; shift ; shift
+	_assign_me_coordinates_bo "$1" "$2" "$3"
+}
+
+#_assign_me... X Y Z
+_assign_me_coordinates_ai() {
+	export in_me_a_x="$1"
+		shift
+	export in_me_a_y="$1"
+		shift
+	export in_me_a_z="$1"
+}
+
+#_assign_me... X Y Z
+_assign_me_coordinates_bi() {
+	export in_me_b_x="$1"
+		shift
+	export in_me_b_y="$1"
+		shift
+	export in_me_b_z="$1"
+}
+
+#_assign_me... X Y Z
+_assign_me_coordinates_ao() {
+	export out_me_a_x="$1"
+		shift
+	export out_me_a_y="$1"
+		shift
+	export out_me_a_z="$1"
+}
+
+#_assign_me... X Y Z
+_assign_me_coordinates_bo() {
+	export out_me_b_x="$1"
+		shift
+	export out_me_b_y="$1"
+		shift
+	export out_me_b_z="$1"
+}
+
+# No known production use.
+_set_me_rand_in() {
+	_messagePlain_nominal 'init: _set_me_rand_in'
+	local rand_uid
+	rand_uid=$(_uid)
+	export in_me_a_name="$rand_uid"
+	export in_me_b_name="$rand_uid"
+}
+
+_set_me_rand_out() {
+	_messagePlain_nominal 'init: _set_me_rand_out'
+	local rand_uid
+	rand_uid=$(_uid)
+	export out_me_a_name="$rand_uid"
+	export out_me_b_name="$rand_uid"
+}
+
+# No known production use.
+_set_me_rand() {
+	_messagePlain_nominal 'init: _set_me_rand'
+	_set_me_rand_in
+	_set_me_rand_out
+}
+
+_set_me_null_in() {
+	_messagePlain_nominal 'init: _set_me_null_in'
+	_assign_me_name_ai null
+	_assign_me_name_bi null
+}
+
+_set_me_null_out() {
+	_messagePlain_nominal 'init: _set_me_null_out'
+	_assign_me_name_ao null
+	_assign_me_name_bo null
+}
+
+_set_me_null() {
+	_messagePlain_nominal 'init: _set_me_null'
+	_set_me_null_in
+	_set_me_null_out
+}
+
+_relink_metaengine_coordinates_in() {
+	_messagePlain_nominal 'init: _relink_metaengine_coordinates_in'
+	
+	_messageCMD mkdir -p "$metaReg"/grid/"$in_me_a_z"/"$in_me_a_x"
+	_messageCMD _relink_relative "$in_me_a_path" "$metaDir"/ai
+	
+	_messageCMD mkdir -p "$metaReg"/grid/"$in_me_b_z"/"$in_me_b_x"
+	_messageCMD _relink_relative "$in_me_b_path" "$metaDir"/bi
+	
+	_report_metaengine_relink_in
+	
+	_messagePlain_good 'return: complete'
+	return 0
+}
+
+_relink_metaengine_coordinates_out() {
+	_messagePlain_nominal 'init: _relink_metaengine_coordinates_out'
+	
+	_messageCMD mkdir -p "$metaReg"/grid/"$out_me_a_z"/"$out_me_a_x"
+	_messageCMD _relink_relative "$metaDir"/ao "$out_me_a_path"
+	
+	_messageCMD mkdir -p "$metaReg"/grid/"$out_me_b_z"/"$out_me_b_x"
+	_messageCMD _relink_relative "$metaDir"/bo "$out_me_b_path"
+	
+	_report_metaengine_relink_out
+	
+	_messagePlain_good 'return: complete'
+	return 0
+}
+
+#No production use.
+_relink_metaengine_coordinates() {
+	_messagePlain_nominal 'init: _relink_metaengine_coordinates'
+	
+	_messageCMD mkdir -p "$metaReg"/grid/"$in_me_a_z"/"$in_me_a_x"
+	_messageCMD _relink_relative "$in_me_a_path" "$metaDir"/ai
+	
+	_messageCMD mkdir -p "$metaReg"/grid/"$in_me_b_z"/"$in_me_b_x"
+	_messageCMD _relink_relative "$in_me_b_path" "$metaDir"/bi
+	
+	_messageCMD mkdir -p "$metaReg"/grid/"$out_me_a_z"/"$out_me_a_x"
+	_messageCMD _relink_relative "$metaDir"/ao "$out_me_a_path"
+	
+	_messageCMD mkdir -p "$metaReg"/grid/"$out_me_b_z"/"$out_me_b_x"
+	_messageCMD _relink_relative "$metaDir"/bo "$out_me_b_path"
+	
+	_messagePlain_good 'return: complete'
+	return 0
+}
+
+#No production use. Untested.
+_rmlink_metaengine_coordinates() {
+	#_rmlink "$metaDir"/ai > /dev/null 2>&1
+	#rmdir "$metaReg"/grid/"$in_me_a_z"/"$in_me_a_x" > /dev/null 2>&1
+	#rmdir "$metaReg"/grid/"$in_me_a_z" > /dev/null 2>&1
+	
+	#_rmlink "$metaDir"/bi > /dev/null 2>&1
+	#rmdir "$metaReg"/grid/"$in_me_b_z"/"$in_me_b_x" > /dev/null 2>&1
+	#rmdir "$metaReg"/grid/"$in_me_b_z" > /dev/null 2>&1
+	
+	_rmlink "$out_me_a_path" > /dev/null 2>&1
+	rmdir "$metaReg"/grid/"$out_me_a_z"/"$out_me_a_x" > /dev/null 2>&1
+	rmdir "$metaReg"/grid/"$out_me_a_z" > /dev/null 2>&1
+	
+	_rmlink "$out_me_b_path" > /dev/null 2>&1
+	rmdir "$metaReg"/grid/"$out_me_b_z"/"$out_me_b_x" > /dev/null 2>&1
+	rmdir "$metaReg"/grid/"$out_me_b_z" > /dev/null 2>&1
+}
+
+_relink_metaengine_name_in() {
+	_messagePlain_nominal 'init: _relink_metaengine_name'
+	
+	#No known production relevance.
+	[[ -e "$metaReg"/name/"$metaID" ]] && _messageError 'FAIL: unexpected safety' && _stop 1
+	
+	_messageCMD mkdir -p "$metaReg"/name/"$in_me_a_name"
+	! [[ "$in_me_a_path" == "/dev/null" ]] && _messageCMD _relink_relative "$in_me_a_path" "$metaDir"/ai
+	_messageCMD mkdir -p "$metaReg"/name/"$in_me_b_name"
+	! [[ "$in_me_a_path" == "/dev/null" ]] && _messageCMD _relink_relative "$in_me_b_path" "$metaDir"/bi
+	
+	[[ "$in_me_a_path" == "/dev/null" ]] && _relink "$in_me_a_path" "$metaDir"/ai
+	[[ "$in_me_b_path" == "/dev/null" ]] && _relink "$in_me_b_path" "$metaDir"/bi
+	
+	# DANGER: Administrative/visualization use ONLY.
+	( [[ "$in_me_a_path" == "/dev/null" ]] || [[ "$in_me_b_path" == "/dev/null" ]] ) && _relink_relative "$metaDir" "$metaReg"/name/null/"$metaID"
+	
+	_report_metaengine_relink_in
+	
+	_messagePlain_good 'return: complete'
+	return 0
+}
+
+_relink_metaengine_name_out() {
+	_messagePlain_nominal 'init: _relink_metaengine_name'
+	
+	#No known production relevance.
+	[[ -e "$metaReg"/name/"$metaID" ]] && _messageError 'FAIL: unexpected safety' && _stop 1
+	
+	_messageCMD mkdir -p "$metaReg"/name/"$out_me_a_name"
+	! [[ "$out_me_a_path" == "/dev/null" ]] && _messageCMD _relink_relative "$metaDir"/ao "$out_me_a_path"
+	_messageCMD mkdir -p "$metaReg"/name/"$out_me_b_name"
+	! [[ "$out_me_b_path" == "/dev/null" ]] && _messageCMD _relink_relative "$metaDir"/bo "$out_me_b_path"
+	
+	[[ "$out_me_a_path" == "/dev/null" ]] && rmdir "$metaDir"/ao && _relink /dev/null "$metaDir"/ao
+	[[ "$out_me_b_path" == "/dev/null" ]] && rmdir "$metaDir"/bo && _relink /dev/null "$metaDir"/bo
+	
+	# DANGER: Administrative/visualization use ONLY.
+	( [[ "$out_me_a_path" == "/dev/null" ]] || [[ "$out_me_b_path" == "/dev/null" ]] ) && _relink_relative "$metaDir" "$metaReg"/name/null/"$metaID"
+	
+	_report_metaengine_relink_out
+	
+	_messagePlain_good 'return: complete'
+	return 0
+}
+
+#No production use. Unmaintained.
+_relink_metaengine_name() {
+	_messagePlain_nominal 'init: _relink_metaengine_name'
+	
+	#No known production relevance.
+	[[ -e "$metaReg"/name/"$metaID" ]] && _messageError 'FAIL: unexpected safety' && _stop 1
+	
+	_messageCMD mkdir -p "$metaReg"/name/"$in_me_a_name"
+	_messageCMD _relink_relative "$in_me_a_path" "$metaDir"/ai
+	_messageCMD mkdir -p "$metaReg"/name/"$in_me_b_name"
+	_messageCMD _relink_relative "$in_me_b_path" "$metaDir"/bi
+	
+	_messageCMD mkdir -p "$metaReg"/name/"$out_me_a_name"
+	_messageCMD _relink_relative "$metaDir"/ao "$out_me_a_path"
+	_messageCMD mkdir -p "$metaReg"/name/"$out_me_b_name"
+	_messageCMD _relink_relative "$metaDir"/bo "$out_me_b_path"
+	
+	[[ "$out_me_a_path" == "/dev/null" ]] && rmdir "$metaDir"/ao && _relink /dev/null "$metaDir"/ao
+	[[ "$out_me_b_path" == "/dev/null" ]] && rmdir "$metaDir"/bo && _relink /dev/null "$metaDir"/bo
+	
+	_messagePlain_good 'return: complete'
+	return 0
+}
+
+#No production use. Untested.
+_rmlink_metaengine_name() {
+	
+	#_rmlink "$metaDir"/ai > /dev/null 2>&1
+	#rmdir "$metaReg"/name/"$in_me_a_name" > /dev/null 2>&1
+	#_rmlink "$metaDir"/bi > /dev/null 2>&1
+	#rmdir "$metaReg"/name/"$in_me_a_name" > /dev/null 2>&1
+	
+	_rmlink "$out_me_a_path" > /dev/null 2>&1
+	rmdir "$metaReg"/name/"$out_me_a_name" > /dev/null 2>&1
+	_rmlink "$out_me_b_path" > /dev/null 2>&1
+	rmdir "$metaReg"/name/"$out_me_b_name" > /dev/null 2>&1
+}
+
+
+_relink_metaengine_out() {
+	_messagePlain_nominal 'init: _relink_metaengine'
+	
+	! _check_me_coordinates_out && ! _check_me_name_out && _messageError 'FAIL: invalid IO coordinates and names' && _stop 1
+	
+	#_check_me_name && _messagePlain_good 'valid: name' && _prepare_metaengine_name && _relink_metaengine_name && _messagePlain_good 'return: success' && return 0
+	_check_me_name_out && _messagePlain_good 'valid: name_out' && _prepare_metaengine_name && _relink_metaengine_name_out && _messagePlain_good 'return: success' && return 0
+	
+	#_check_me_coordinates && _messagePlain_good 'valid: coordinates' && _prepare_metaengine_coordinates && _relink_metaengine_coordinates && _messagePlain_good 'return: success' && return 0
+	_check_me_coordinates_out && _messagePlain_good 'valid: coordinates_out' && _prepare_metaengine_coordinates && _relink_metaengine_coordinates_out && _messagePlain_good 'return: success' && return 0
+	
+	_messagePlain_bad 'stop: undefined failure'
+	_stop 1
+}
+
+_relink_metaengine_in() {
+	_messagePlain_nominal 'init: _relink_metaengine'
+	
+	! _check_me_coordinates_in && ! _check_me_name_in && _messageError 'FAIL: invalid IO coordinates and names' && _stop 1
+	
+	#_check_me_name && _messagePlain_good 'valid: name' && _prepare_metaengine_name && _relink_metaengine_name && _messagePlain_good 'return: success' && return 0
+	_check_me_name_in && _messagePlain_good 'valid: name_in' && _prepare_metaengine_name && _relink_metaengine_name_in && _messagePlain_good 'return: success' && return 0
+	
+	#_check_me_coordinates && _messagePlain_good 'valid: coordinates' && _prepare_metaengine_coordinates && _relink_metaengine_coordinates && _messagePlain_good 'return: success' && return 0
+	_check_me_coordinates_in && _messagePlain_good 'valid: coordinates_in' && _prepare_metaengine_coordinates && _relink_metaengine_coordinates_in && _messagePlain_good 'return: success' && return 0
+	
+	_messagePlain_bad 'stop: undefined failure'
+	_stop 1
+}
+
+#No production use.  Unmaintained.
+_relink_metaengine() {
+	_messagePlain_nominal 'init: _relink_metaengine'
+	
+	! _check_me_coordinates && ! _check_me_name && _messageError 'FAIL: invalid IO coordinates and names' && _stop 1
+	
+	#_check_me_name && _messagePlain_good 'valid: name' && _prepare_metaengine_name && _relink_metaengine_name && _messagePlain_good 'return: success' && return 0
+	_check_me_name_in && _messagePlain_good 'valid: name_in' && _prepare_metaengine_name && _relink_metaengine_name_in && _messagePlain_good 'return: success' && return 0
+	_check_me_name_out && _messagePlain_good 'valid: name_out' && _prepare_metaengine_name && _relink_metaengine_name_out && _messagePlain_good 'return: success' && return 0
+	
+	#_check_me_coordinates && _messagePlain_good 'valid: coordinates' && _prepare_metaengine_coordinates && _relink_metaengine_coordinates && _messagePlain_good 'return: success' && return 0
+	_check_me_coordinates_in && _messagePlain_good 'valid: coordinates_in' && _prepare_metaengine_coordinates && _relink_metaengine_coordinates_in && _messagePlain_good 'return: success' && return 0
+	_check_me_coordinates_out && _messagePlain_good 'valid: coordinates_out' && _prepare_metaengine_coordinates && _relink_metaengine_coordinates_out && _messagePlain_good 'return: success' && return 0
+	
+	_messagePlain_bad 'stop: undefined failure'
+	_stop 1
+}
+
+
+_prepare_metaengine_coordinates() {
+	mkdir -p "$metaReg"/grid
+}
+
+_prepare_metaengine_name() {
+	mkdir -p "$metaReg"/name
+}
+
+_prepare_metaengine() {
+	mkdir -p "$metaTmp"
+	
+	[[ "$metaDir_tmp" != "" ]] && mkdir -p "$metaDir_tmp"
+	[[ "$metaDir" != "" ]] && mkdir -p "$metaDir"
+	
+	mkdir -p "$metaReg"
+	
+	mkdir -p "$metaDir"/ao
+	mkdir -p "$metaDir"/bo
+}
+
+_start_metaengine_host() {
+	_stop_metaengine_allow
+	
+	[[ -e "$scriptAbsoluteFolder""$tmpPrefix"/.e_"$sessionid" ]] && _messageError 'FAIL: safety: meta conflicts engine' && _stop 1
+	
+	_messageNormal 'init: _start_metaengine_host'
+	
+	_set_me_host
+	
+	_start
+	
+	mkdir -p "$metaTmp"
+	
+	#_relink_relative "$safeTmp"/.pid "$metaTmp"/.pid
+}
+
+_start_metaengine() {
+	_stop_metaengine_prohibit
+	
+	[[ -e "$scriptAbsoluteFolder""$tmpPrefix"/.e_"$sessionid" ]] && _messageError 'FAIL: safety: meta conflicts engine' && _stop 1
+	
+	_messageNormal 'processor: '"$metaObjName"
+	_messagePlain_probe 'init: _start_metaengine'
+	
+	_prepare
+	#_start
+	
+	_set_me
+	_prepare_metaengine
+	
+	# WARNING: Processors must include "_relink_metaengine_in" and "_relink_metaengine_out" where appropriate.
+	#_relink_metaengine_in
+	#_relink_metaengine_out
+	
+	_report_metaengine
+	
+	echo $$ > "$metaDir"/.pid
+	_relink_relative "$metaDir"/.pid "$metaDir_tmp"/.pid
+	
+	_me_embed_here > "$metaDir"/.metaenv.sh
+	chmod 755 "$metaDir"/.metaenv.sh
+	
+	echo "$sessionid" > "$metaDir"/.sessionid
+	_embed_here > "$metaDir"/.embed.sh
+	chmod 755 "$metaDir"/.embed.sh
+}
+
+_stop_metaengine_allow() {
+	export metaStop="true"
+}
+_stop_metaengine_prohibit() {
+	export metaStop="false"
+}
+
+#Waits for files to exist, or indefinitely pauses, allowing SIGINT or similar to trigger "_stop" at any time. Former case also terminates if metaConfidence is set.
+_stop_metaengine_wait() {
+	_stop_metaengine_allow
+	
+	while ! _all_exist "$@" 
+	do
+		sleep 0.1
+	done
+	
+	if [[ "$1" == "" ]]
+	then
+		while true
+		do
+			sleep 1
+		done
+	fi
+}
+
+_confidence_metaengine() {
+	if [[ -e "$metaConfidence" ]]
+	then
+		local currentMetaConfidenceValue
+		currentMetaConfidenceValue=$(cat "$metaConfidence")
+		
+		[[ "$currentMetaConfidenceValue" == '1' ]] && return 0
+	fi
+	
+	return 1
+}
+
+#_rm_instance_metaengine_metaDir() {
+#	# WARNING: No production use, heredoc unsupported.
+#	[[ "$metaPreserve" == "true" ]] && return 0
+#	
+#	[[ "$metaDir" != "" ]] && [[ "$metaDir" == *"$sessionid"* ]] && [[ -e "$metaDir" ]] && _safeRMR "$metaDir"
+#}
+
+_rm_instance_metaengine() {
+	# WARNING: Documentation only. Any "_stop" condition expected to cleanup work directory corresponding to sessionid.
+	# Recommended practice is separate MetaEngine host for any intermittent processing chain.
+	#_rm_instance_metaengine_metaDir
+	
+	[[ "$metaStop" != "true" ]] && return 0
+	export metaStop="false"
+	
+	_terminateMetaProcessorAll_metaengine
+	
+	# ATTENTION: Optional feature. Copies host metaengine directories for analysis.
+	if [[ "$metaLog" != "" ]] && [[ -e "$metaLog" ]]
+	then
+		cp -a "$metaTmp" "$metaLog"/metaTmp
+		cp -a "$metaProc" "$metaLog"/metaProc
+	fi
+	
+	#Only created if needed by meta.
+	[[ "$metaTmp" != "" ]] && [[ -e "$metaTmp" ]] && _safeRMR "$metaTmp"
+	
+	[[ "$metaProc" != "" ]] && [[ "$metaProc" == *"$sessionid"* ]] && [[ -e "$metaProc" ]] && _safeRMR "$metaProc"
+}
+
+_complete_me_active() {
+	[[ "$in_me_active" == "" ]] && return 1
+	! [[ -e "$in_me_active" ]] && return 1
+	
+	local currentActiveProcCount
+	currentActiveProcCount=$(ls -1 "$in_me_active" | wc -l | tr -dc '0-9')
+	
+	if [[ "$currentActiveProcCount" == '0' ]]
+	then
+		return 0
+	fi
+	
+	return 1
+}
+
+_ready_me_in() {
+	#! [[ -e "$in_me_a_path" ]] && _messagePlain_warn 'missing: in_me_a_path= '"$in_me_a_path"
+	#! [[ -e "$in_me_b_path" ]] && _messagePlain_warn 'missing: in_me_b_path= '"$in_me_b_path"
+	
+	if [[ ! -e "$in_me_a_path" ]] || [[ ! -e "$in_me_b_path" ]]
+	then
+		return 1
+	fi
+	
+	_messagePlain_good 'ready: in_me_a_path, in_me_b_path'
+	return 0
+}
+
+_wait_metaengine_host() {
+	_messagePlain_nominal 'init: _wait_metaengine_host'
+	_wait_metaengine_in "$@"
+}
+
+_wait_metaengine() {
+	_messagePlain_nominal 'init: _wait_metaengine'
+	_wait_metaengine_in "$@"
+}
+
+# ATTENTION: Overload with "core.sh" if appropriate.
+_wait_metaengine_in() {
+	#_ready_me_in && return 0
+	#sleep 0.1
+	#_ready_me_in && return 0
+	#sleep 0.3
+	#_ready_me_in && return 0
+	#sleep 1
+	#_ready_me_in && return 0
+	
+	#sleep 3
+	#_ready_me_in && return 0
+	#sleep 10
+	#_ready_me_in && return 0
+	#sleep 10
+	#_ready_me_in && return 0
+	#sleep 10
+	#_ready_me_in && return 0
+	#sleep 20
+	#_ready_me_in && return 0
+	#sleep 20
+	#_ready_me_in && return 0
+	#sleep 20
+	#_ready_me_in && return 0
+	
+	while ! _ready_me_in && ! _complete_me_active && ! [[ -e "$metaConfidence" ]]
+	do
+		sleep 0.1
+	done
+	
+	if [[ -e "$metaConfidence" ]]
+	then
+		if [[ $(head -c 1 "$metaConfidence") == '0' ]]
+		then
+			_messagePlain_bad 'fail: flag: exists: false: metaConfidence= '"$metaConfidence"
+			return 1
+		fi
+		
+		_messagePlain_good 'pass: flag: exists: metaConfidence= '"$metaConfidence"
+		return 1
+	fi
+	
+	if ! _ready_me_in && _complete_me_active
+	then
+		rm -f "$in_me_active" > /dev/null 2>&1
+		[[ -e "$in_me_active" ]] && rmdir "$in_me_active" > /dev/null 2>&1
+		_messagePlain_bad 'fail: died: '"$in_me_active" && return 1
+	fi
+	
+	return 0
+	
+	# Unexpected.
+	! _ready_me_in && _messagePlain_bad 'unexpected: missing: in_me_a_path, in_me_b_path' && return 1
+}
+
+# "$1" == uid
+_active_me() {
+	_set_me_io_out
+	
+	mkdir -p "$out_me_active_tmp"
+	echo "$$" > "$out_me_active_tmp"/"$1"
+	_relink_relative "$out_me_active_tmp" "$out_me_active"
+}
+
+# "$1" == uid
+_complete_me() {
+	rm "$out_me_active_tmp"/"$1"
+}
+
+_terminateMetaProcessorAll_metaengine() {
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_m_$(_uid)
+	
+	local currentPID
+	
+	cat "$metaTmp"/*/.pid >> "$processListFile" 2> /dev/null
+	
+	while read -r currentPID
+	do
+		pkill -P "$currentPID" > /dev/null 2>&1
+		kill "$currentPID" > /dev/null 2>&1
+	done < "$processListFile"
+	
+	rm "$processListFile"
+}
+
+# Intended to illustrate the basic logic flow. Uses global variables for some arguments - resetting these is MANDATORY .
+_example_process_rand() {
+	_start_metaengine_host
+	
+	_set_me_null_in
+	_set_me_rand_out
+	_example_processor_name
+	
+	_cycle_me
+	_example_processor_name
+	
+	_cycle_me
+	_example_processor_name
+	
+	_cycle_me
+	_set_me_null_out
+	_example_processor_name
+	
+	_reset_me
+	
+	_stop_metaengine_wait
+}
+
+# Intended to illustrate the basic logic flow. Uses global variables for some arguments - resetting these is MANDATORY .
+_example_process_name() {
+	_start_metaengine_host
+	
+	_set_me_null_in
+	_assign_me_name_out "1"
+	_example_processor_name
+	
+	_cycle_me
+	_assign_me_name_out "2"
+	_example_processor_name
+	
+	_cycle_me
+	_assign_me_name_out "3"
+	_example_processor_name
+	
+	_cycle_me
+	_set_me_null_out
+	_example_processor_name
+	
+	_reset_me
+	
+	_stop_metaengine_wait
+}
+
+# Intended to illustrate the basic logic flow. Uses global variables for some arguments - resetting these is MANDATORY .
+_example_process_coordinates() {
+	_start_metaengine_host
+	
+	#_assign_me_coordinates aiX aiY aiZ biX biY biZ aoX aoY aoZ boX boY boZ
+	#"$metaReg"/grid/"$z"/"$x"/"$y"
+	
+	_reset_me_name
+	_assign_me_coordinates "" "" "" "" "" "" 0 1 0 1 1 0
+	_set_me_null_in
+	_example_processor_name
+	
+	_reset_me_name
+	_assign_me_coordinates 0 1 0 1 1 0 0 2 0 1 2 0
+	_example_processor_name
+	
+	_reset_me_name
+	_assign_me_coordinates 0 2 0 1 2 0 0 3 0 1 3 0
+	_example_processor_name
+	
+	_reset_me_name
+	_assign_me_coordinates 0 3 0 1 3 0 0 4 0 1 4 0
+	_example_processor_name
+	
+	_reset_me
+	
+	_stop_metaengine_wait
+}
+
+# Intended to illustrate the basic logic flow. Uses global variables for some arguments - resetting these is MANDATORY .
+_example_process_base() {
+	_start_metaengine_host
+	
+	_set_me_type_base
+	
+	#_assign_me_coordinates aiX aiY aiZ biX biY biZ aoX aoY aoZ boX boY boZ
+	#"$metaReg"/grid/"$z"/"$x"/"$y"
+	
+	_reset_me_name
+	_assign_me_coordinates "" "" "" "" "" "" 0 1 0 1 1 0
+	_set_me_null_in
+	_example_processor_name
+	
+	_reset_me_name
+	_assign_me_coordinates 0 1 0 1 1 0 0 2 0 1 2 0
+	_example_processor_name
+	
+	_reset_me_name
+	_assign_me_coordinates 0 2 0 1 2 0 0 3 0 1 3 0
+	_example_processor_name
+	
+	_reset_me_name
+	_assign_me_coordinates 0 3 0 1 3 0 0 4 0 1 4 0
+	_example_processor_name
+	
+	_reset_me
+	
+	_stop_metaengine_wait
+}
+
+
+# Intended to illustrate the basic logic flow. Uses global variables for some arguments - resetting these is MANDATORY .
+_example_processor_name() {
+	_assign_me_objname "_example_processor_name"
+	
+	_me_command "_example_me_processor_name"
+	
+	#Optional. Usually correctly orders diagnostic output.
+	sleep 3
+}
+
+_example_me_processor_name() {
+	_messageNormal 'launch: '"$metaObjName"
+	
+	! _wait_metaengine && _stop 1
+	_start_metaengine
+	_relink_metaengine_in
+	_relink_metaengine_out
+	
+	#Do something.
+	#> cat >
+	while true
+	do
+		sleep 10
+	done
+	
+	#optional, closes host upon completion
+	#_stop
+}
+
+
+# Intended to illustrate the basic logic flow. Uses global variables for some arguments - resetting these is MANDATORY .
+#"$1" == _me_processor_name
+#"$2" == metaObjName (optional)
+_processor_launch() {
+	_assign_me_objname "$1"
+	#[[ "$2" != "" ]] && _assign_me_objname "$2"
+	
+	_me_command "$@"
+	
+	#Optional. Usually correctly orders diagnostic output.
+	#_wait_metaengine_host
+	#sleep 3
+}
+
+_me_processor_noise() {
+	_messageNormal 'launch: '"$metaObjName"
+	
+	! _wait_metaengine && _stop 1
+	_start_metaengine
+	_relink_metaengine_in
+	_relink_metaengine_out
+	
+	_buffer_me_processor_fifo
+	
+	cat < /dev/urandom > "$metaDir"/ao/fifo
+	
+	#while true
+	#do
+	#	sleep 1
+	#done
+	
+	#optional, closes host upon completion
+	#_stop
+}
+
+_me_divert() {
+	_buffer_me_processor_divert "$@"
+}
+
+#Registers an output to a diversion directory for processors which may support more than two inputs. Expected to be used with special processors creating their own unique registrations (ie. _reg/special).
+_buffer_me_processor_divert() {
+	mkdir -p "$metaReg"/"$1"/divert
+	mkdir -p "$metaReg"/"$2"/divert
+	
+	
+	_relink "$metaDir"/ao "$metaReg"/"$1"/divert/"$metaID"
+	_relink "$metaDir"/bo "$metaReg"/"$2"/divert/"$metaID"
+}
+
+_me_fifo() {
+	_buffer_me_processor_fifo
+}
+
+_me_snippet_reset() {
+	_buffer_me_processor_snippet_reset
+}
+
+_me_snippet_write() {
+	_buffer_me_processor_snippet_write
+}
+
+_me_snippet_read() {
+	_buffer_me_processor_snippet_read
+}
+
+_me_snippet_read_wait() {
+	_buffer_me_processor_snippet_read_wait
+}
+
+_me_confidence_full() {
+	_buffer_me_processor_confidence_full
+}
+
+_me_confidence_none() {
+	_buffer_me_processor_confidence_none
+}
+
+_buffer_me_processor_fifo() {
+	_buffer_me_processor_fifo_rm
+	
+	#[[ -d "$metaDir"/ai ]] && mkfifo "$metaDir"/ai/fifo
+	#[[ -d "$metaDir"/bi ]] && mkfifo "$metaDir"/bi/fifo
+	
+	[[ -d "$metaDir"/ao ]] && mkfifo "$metaDir"/ao/fifo
+	#[[ -d "$metaDir"/bo ]] && mkfifo "$metaDir"/bo/fifo
+}
+
+_buffer_me_processor_fifo_rm() {
+	rm -f "$metaDir"/ao/fifo > /dev/null 2>&1
+	#rm -f "$metaDir"/bo/fifo > /dev/null 2>&1
+}
+
+_buffer_me_processor_snippet_reset() {
+	echo | _buffer_me_processor_snippet_assign
+}
+
+_buffer_me_processor_snippet_write() {
+	! [[ -d "$metaDir"/ao ]] && return 1
+	
+	cat > "$metaDir"/ao/quicktmp_snippet
+	mv -n "$metaDir"/ao/quicktmp_snippet "$metaDir"/ao/snippet
+	rm -f "$metaDir"/ao/quicktmp_snippet > /dev/null 2>&1
+}
+
+_buffer_me_processor_snippet_check_binary() {
+	! [[ -e "$metaDir"/bi/confidence ]] && return 1
+	! [[ -e "$metaDir"/ai/snippet ]] && return 1
+	
+	local snippetConfidence
+	snippetConfidence=$(cat "$metaDir"/bi/confidence)
+	
+	#cat "$metaDir"/bi/confidence
+	
+	[[ "$snippetConfidence" == "1" ]] && return 0
+	return 1
+}
+
+_buffer_me_processor_snippet_check() {
+	! [[ -e "$metaDir"/bi/confidence ]] && return 1
+	! [[ -e "$metaDir"/ai/snippet ]] && return 1
+	
+	local snippetConfidence
+	snippetConfidence=$(cat "$metaDir"/bi/confidence)
+	
+	cat "$metaDir"/bi/confidence
+	
+	[[ "$snippetConfidence" == "1" ]] && return 0
+	return 1
+}
+
+_buffer_me_processor_snippet_read() {
+	! [[ -d "$metaDir"/ai ]] && return 1
+	! [[ -d "$metaDir"/bi ]] && return 1
+	
+	! [[ -e "$metaDir"/ai/snippet ]] && return 1
+	
+	cat "$metaDir"/ai/snippet
+}
+
+_buffer_me_processor_snippet_read_wait() {
+	! [[ -d "$metaDir"/ai ]] && return 1
+	! [[ -d "$metaDir"/bi ]] && return 1
+	
+	while ! _buffer_me_processor_snippet_check_binary
+	do
+		sleep 0.3
+	done
+	
+	cat "$metaDir"/ai/snippet
+}
+
+_buffer_me_processor_confidence_reset() {
+	_buffer_me_processor_confidence_none
+}
+
+_buffer_me_processor_confidence_none() {
+	echo 0 | _buffer_me_processor_confidence_write
+}
+
+#Typically signals snippet processor task complete.
+_buffer_me_processor_confidence_full() {
+	echo 1 | _buffer_me_processor_confidence_write
+}
+
+_buffer_me_processor_confidence_write() {
+	! [[ -d "$metaDir"/bo ]] && return 1
+	
+	cat > "$metaDir"/bo/quicktmp_confidence
+	mv "$metaDir"/bo/quicktmp_confidence "$metaDir"/bo/confidence
+	rm -f "$metaDir"/bo/quicktmp_confidence > /dev/null 2>&1
+}
+
+# WARNING: Untested.
+_me_page_read() {
+	_buffer_me_processor_page_in_read "$@"
+}
+
+# WARNING: Untested.
+_me_page_write() {
+	_buffer_me_processor_page_out_write "$@"
+}
+
+_me_page_tick_read() {
+	_buffer_me_processor_page_tick_default _me_page_read "$@"
+}
+
+_me_page_tick_write() {
+	_buffer_me_processor_page_tick_default _me_page_write "$@"
+}
+
+# WARNING: High performance is not to be expected from bash implementation. C/OpenCL may be better suited.
+_me_page_tick_advance() {
+	_buffer_me_processor_page_tick_advance_default "$@"
+}
+
+
+
+
+_buffer_me_processor_page_tick() {
+	local measureTickA
+	local measureTickB
+	local measureTickDifference
+	
+	measureTickA=$(cat "$bufferTick_file")
+	
+	while true
+	do
+		measureTickB=$(cat "$bufferTick_file")
+		measureTickDifference=$(bc <<< "$measureTickB - $measureTickA")
+		
+		if [[ "$measureTickDifference" -ge "$bufferTick_count" ]]
+		then
+			"$@"
+		fi
+		
+		sleep 0.005
+	done
+}
+
+_buffer_me_processor_page_tick_default() {
+	export bufferTick_file="$metaReg"/tick
+	export bufferTick_count=1
+	
+	_buffer_me_processor_page_tick "$@"
+	
+	export bufferTick_file=
+	export bufferTick_count=
+}
+
+_buffer_me_processor_page_tick_advance_default() {
+	export bufferTick_file="$metaReg"/tick
+	export bufferTick_count=1
+	
+	_buffer_me_processor_page_tick_advance "$@"
+	
+	export bufferTick_file=
+	export bufferTick_count=
+}
+
+_buffer_me_processor_page_tick_advance() {
+	! [[ -e "$bufferTick_file" ]] && _buffer_me_processor_page_tick_reset
+	
+	local bufferTick_current
+	bufferTick_current=$(cat "$bufferTick_file")
+	
+	local bufferTick_next
+	bufferTick_next=$(bc <<< "$bufferTick_current + 1")
+	
+	echo "$bufferTick_next" | _buffer_me_processor_page_tick_write
+}
+
+_buffer_me_processor_page_tick_reset() {
+	echo 0 | _buffer_me_processor_page_tick_write
+}
+
+_buffer_me_processor_page_tick_write() {
+	#! [[ -d "$metaReg" ]] && return 1
+	
+	cat > "$bufferTick_file".tmp
+	mv "$bufferTick_file".tmp "$bufferTick_file"
+	rm -f "$bufferTick_file".tmp > /dev/null 2>&1
+}
+
+_buffer_me_processor_page_clock() {
+	local measureDateA
+	local measureDateB
+	local measureDateDifference
+	
+	measureDateA=$(date +%s%N | cut -b1-13)
+	
+	while true
+	do
+		measureDateB=$(date +%s%N | cut -b1-13)
+		measureDateDifference=$(bc <<< "$measureDateB - $measureDateA")
+		
+		if [[ "$measureDateDifference" -ge "$bufferClock_ms" ]]
+		then
+			"$@"
+		fi
+		
+		[[ "$bufferClock_ms" -ge "3000" ]] && sleep 1
+		[[ "$bufferClock_ms" -ge "300" ]] && sleep 0.1
+		sleep 0.005
+	done
+}
+
+_buffer_me_processor_page_clock_100fps() {
+	export bufferClock_ms=10
+	_buffer_me_processor_page_clock "$@"
+	export bufferClock_ms=
+}
+
+_buffer_me_processor_page_clock_90fps() {
+	export bufferClock_ms=11
+	_buffer_me_processor_page_clock "$@"
+	export bufferClock_ms=
+}
+
+_buffer_me_processor_page_clock_30fps() {
+	export bufferClock_ms=33
+	_buffer_me_processor_page_clock "$@"
+	export bufferClock_ms=
+}
+
+_buffer_me_processor_page_clock_1fps() {
+	export bufferClock_ms=1000
+	_buffer_me_processor_page_clock "$@"
+	export bufferClock_ms=
+}
+
+_buffer_me_processor_page_clock_1fpm() {
+	export bufferClock_ms=60000
+	_buffer_me_processor_page_clock "$@"
+	export bufferClock_ms=
+}
+
+_buffer_me_processor_page_clock_1fph() {
+	export bufferClock_ms=360000
+	_buffer_me_processor_page_clock "$@"
+	export bufferClock_ms=
+}
+
+
+
+
+_buffer_me_processor_page_in_read() {
+	! [[ -e "$metaDir"/bi/pointer ]] && return 1
+	
+	local bufferPointerRead
+	
+	bufferPointerRead=$(_buffer_me_processor_page_pointer_in_get_current)
+	
+	! [[ -e "$metaDir"/ai/"$bufferPointerRead" ]] && return 1
+	
+	cat "$metaDir"/ai/"$bufferPointerRead"
+}
+
+
+_buffer_me_processor_page_pointer_in_get_current() {
+	! [[ -e "$metaDir"/bi/pointer ]] && return 1
+	
+	cat "$metaDir"/bi/pointer
+}
+
+_buffer_me_processor_page_pointer_out_get_previous() {
+	! [[ -e "$metaDir"/bi/pointer ]] && return 1
+	
+	local bufferPointer
+	
+	bufferPointer=$(cat "$metaDir"/bi/pointer)
+	
+	[[ "$bufferPointer" == "0" ]] && echo 2 && return 0
+	[[ "$bufferPointer" == "1" ]] && echo 0 && return 0
+	[[ "$bufferPointer" == "2" ]] && echo 1 && return 0
+}
+
+_buffer_me_processor_page_pointer_out_get_next() {
+	! [[ -e "$metaDir"/bi/pointer ]] && return 1
+	
+	local bufferPointer
+	
+	bufferPointer=$(cat "$metaDir"/bi/pointer)
+	
+	[[ "$bufferPointer" == "0" ]] && echo 1 && return 0
+	[[ "$bufferPointer" == "1" ]] && echo 2 && return 0
+	[[ "$bufferPointer" == "2" ]] && echo 0 && return 0
+}
+
+
+
+
+
+_buffer_me_processor_page_out_write() {
+	_buffer_me_processor_page_pointer_out_advance
+	
+	local bufferPointerWrite
+	bufferPointerNext=$(_buffer_me_processor_page_pointer_out_get_next)
+	
+	cat > "$metaDir"/ao/quicktmp_page"$bufferPointerWrite"
+	mv "$metaDir"/ao/quicktmp_page"$bufferPointerWrite" "$metaDir"/ao/"$bufferPointerWrite"
+	rm -f "$metaDir"/ao/quicktmp_page"$bufferPointerWrite" > /dev/null 2>&1
+}
+
+_buffer_me_processor_page_pointer_out_advance() {
+	! [[ -d "$metaDir"/bo ]] && return 1
+	
+	! [[ -e "$metaDir"/bo/pointer ]] && _buffer_me_processor_page_pointer_out_reset
+	
+	local bufferPointerNext
+	bufferPointerNext=$(_buffer_me_processor_page_pointer_out_get_next)
+	
+	echo "$bufferPointerNext" | _buffer_me_processor_page_pointer_out_write
+}
+
+_buffer_me_processor_page_pointer_out_get_current() {
+	! [[ -e "$metaDir"/bo/pointer ]] && return 1
+	
+	cat "$metaDir"/bo/pointer
+}
+
+_buffer_me_processor_page_pointer_out_get_previous() {
+	! [[ -e "$metaDir"/bo/pointer ]] && return 1
+	
+	local bufferPointer
+	
+	bufferPointer=$(cat "$metaDir"/bo/pointer)
+	
+	[[ "$bufferPointer" == "0" ]] && echo 2 && return 0
+	[[ "$bufferPointer" == "1" ]] && echo 0 && return 0
+	[[ "$bufferPointer" == "2" ]] && echo 1 && return 0
+}
+
+_buffer_me_processor_page_pointer_out_get_next() {
+	! [[ -e "$metaDir"/bo/pointer ]] && return 1
+	
+	local bufferPointer
+	
+	bufferPointer=$(cat "$metaDir"/bo/pointer)
+	
+	[[ "$bufferPointer" == "0" ]] && echo 1 && return 0
+	[[ "$bufferPointer" == "1" ]] && echo 2 && return 0
+	[[ "$bufferPointer" == "2" ]] && echo 0 && return 0
+}
+
+#No production use.
+_buffer_me_processor_page_reset() {
+	_buffer_me_processor_page_pointer_reset
+	
+	rm -f "$metaDir"/ao/0 > /dev/null 2>&1
+	rm -f "$metaDir"/ao/1 > /dev/null 2>&1
+	rm -f "$metaDir"/ao/2 > /dev/null 2>&1
+}
+
+_buffer_me_processor_page_pointer_out_reset() {
+	_buffer_me_processor_page_pointer_out_0
+}
+
+_buffer_me_processor_page_pointer_out_0() {
+	echo 0 | _buffer_me_processor_page_pointer_out_write
+}
+
+_buffer_me_processor_page_pointer_out_1() {
+	echo 1 | _buffer_me_processor_page_pointer_out_write
+}
+
+_buffer_me_processor_page_pointer_out_2() {
+	echo 2 | _buffer_me_processor_page_pointer_out_write
+}
+
+
+_buffer_me_processor_page_pointer_out_write() {
+	! [[ -d "$metaDir"/bo ]] && return 1
+	
+	cat > "$metaDir"/bo/quicktmp_pointer
+	mv "$metaDir"/bo/quicktmp_pointer "$metaDir"/bo/pointer
+	rm -f "$metaDir"/bo/quicktmp_pointer > /dev/null 2>&1
+}
+
+
+
 _buildHello() {
 	local helloSourceCode
 	helloSourceCode="$scriptAbsoluteFolder"/generic/hello/hello.c
@@ -12716,9 +17224,9 @@ _build() {
 
 #####Local Environment Management (Resources)
 
-_prepare_prog() {
-	true
-}
+#_prepare_prog() {
+#	true
+#}
 
 _extra() {
 	true
@@ -12728,12 +17236,19 @@ _prepare_abstract() {
 	! mkdir -p "$abstractfs_root" && exit 1
 	chmod 0700 "$abstractfs_root" > /dev/null 2>&1
 	! chmod 700 "$abstractfs_root" && exit 1
-	! chown "$USER":"$USER" "$abstractfs_root" && exit 1
+	if ! chown "$USER":"$USER" "$abstractfs_root" > /dev/null 2>&1
+	then
+		! /sbin/chown "$USER" "$abstractfs_root" && exit 1
+	fi
+	
 	
 	! mkdir -p "$abstractfs_lock" && exit 1
 	chmod 0700 "$abstractfs_lock" > /dev/null 2>&1
 	! chmod 700 "$abstractfs_lock" && exit 1
-	! chown "$USER":"$USER" "$abstractfs_lock" && exit 1
+	if ! chown "$USER":"$USER" "$abstractfs_lock" > /dev/null 2>&1
+	then
+		! /sbin/chown "$USER" "$abstractfs_root" && exit 1
+	fi
 }
 
 _prepare() {
@@ -12751,16 +17266,27 @@ _prepare() {
 	#_prepare_abstract
 	
 	_extra
-	_prepare_prog
+	_tryExec "_prepare_prog"
 }
 
 #####Local Environment Management (Instancing)
 
-_start_prog() {
-	true
+#_start_prog() {
+#	true
+#}
+
+# ATTENTION: Consider carefully, override with "ops".
+# WARNING: Unfortunate, but apparently necessary, workaround for script termintaing while "sleep" or similar run under background.
+_start_stty_echo() {
+	#true
+	
+	#stty echo --file=/dev/tty > /dev/null 2>&1
+	
+	export ubFoundEchoStatus=$(stty --file=/dev/tty -g 2>/dev/null)
 }
 
 _start() {
+	_start_stty_echo
 	
 	_prepare
 	
@@ -12772,26 +17298,38 @@ _start() {
 	_embed_here > "$safeTmp"/.embed.sh
 	chmod 755 "$safeTmp"/.embed.sh
 	
-	_start_prog
+	_tryExec "_start_prog"
 }
 
-_saveVar_prog() {
-	true
-}
+#_saveVar_prog() {
+#	true
+#}
 
 _saveVar() {
 	true
 	#declare -p varName > "$varStore"
 	
-	_saveVar_prog
+	_tryExec "_saveVar_prog"
 }
 
-_stop_prog() {
-	true
+#_stop_prog() {
+#	true
+#}
+
+# ATTENTION: Consider carefully, override with "ops".
+# WARNING: Unfortunate, but apparently necessary, workaround for script termintaing while "sleep" or similar run under background.
+_stop_stty_echo() {
+	#true
+	
+	#stty echo --file=/dev/tty > /dev/null 2>&1
+	
+	[[ "$ubFoundEchoStatus" != "" ]] && stty --file=/dev/tty "$ubFoundEchoStatus" 2> /dev/null
 }
 
 _stop() {
-	_stop_prog
+	_stop_stty_echo
+	
+	_tryExec "_stop_prog"
 	
 	_preserveLog
 	
@@ -12799,31 +17337,50 @@ _stop() {
 	local ub_stop_pid
 	if [[ -e "$safeTmp"/.pid ]]
 	then
-		ub_stop_pid=$(cat "$safeTmp"/.pid)
+		ub_stop_pid=$(cat "$safeTmp"/.pid 2> /dev/null)
 		if [[ $$ != "$ub_stop_pid" ]]
 		then
-			pkill -P "$ub_stop_pid"
-			kill "$ub_stop_pid"
+			pkill -P "$ub_stop_pid" > /dev/null 2>&1
+			kill "$ub_stop_pid" > /dev/null 2>&1
 		fi
 	fi
-	
-	rm -f "$pidFile" > /dev/null 2>&1	#Redundant, as this usually resides in "$safeTmp".
+	#Redundant, as this usually resides in "$safeTmp".
+	rm -f "$pidFile" > /dev/null 2>&1
 	
 	if [[ -e "$scopeTmp" ]] && [[ -e "$scopeTmp"/.pid ]] && [[ "$$" == $(cat "$scopeTmp"/.pid 2>/dev/null) ]]
 	then
-		rm -f "$ub_scope" > /dev/null 2>&1			#Symlink, or nonexistent.
-		[[ -e "$scopeTmp" ]] && _safeRMR "$scopeTmp"		#Only created if needed by scope.
+		#Symlink, or nonexistent.
+		rm -f "$ub_scope" > /dev/null 2>&1
+		#Only created if needed by scope.
+		[[ -e "$scopeTmp" ]] && _safeRMR "$scopeTmp"
 	fi
 	
-	[[ -e "$queryTmp" ]] && _safeRMR "$queryTmp"			#Only created if needed by query.
+	#Only created if needed by query.
+	[[ -e "$queryTmp" ]] && _safeRMR "$queryTmp"
+	
+	#Only created if needed by engine.
+	[[ -e "$engineTmp" ]] && _safeRMR "$engineTmp"
+	
+	_tryExec _rm_instance_metaengine
+	_tryExec _rm_instance_channel
+	
 	_safeRMR "$shortTmp"
 	_safeRMR "$safeTmp"
+	
+	[[ -e "$safeTmp" ]] && sleep 0.1 && _safeRMR "$safeTmp"
+	[[ -e "$safeTmp" ]] && sleep 0.3 && _safeRMR "$safeTmp"
+	[[ -e "$safeTmp" ]] && sleep 1 && _safeRMR "$safeTmp"
+	[[ -e "$safeTmp" ]] && sleep 3 && _safeRMR "$safeTmp"
+	[[ -e "$safeTmp" ]] && sleep 3 && _safeRMR "$safeTmp"
+	[[ -e "$safeTmp" ]] && sleep 3 && _safeRMR "$safeTmp"
 	
 	_tryExec _rm_instance_fakeHome
 	
 	#Optionally always try to remove any systemd shutdown hook.
 	#_tryExec _unhook_systemd_shutdown
 	
+	
+	_stop_stty_echo
 	if [[ "$1" != "" ]]
 	then
 		exit "$1"
@@ -12833,9 +17390,9 @@ _stop() {
 }
 
 #Do not overload this unless you know why you need it instead of _stop_prog.
-_stop_emergency_prog() {
-	true
-}
+#_stop_emergency_prog() {
+#	true
+#}
 
 #Called upon SIGTERM or similar signal.
 _stop_emergency() {
@@ -12852,7 +17409,7 @@ _stop_emergency() {
 	
 	_tryExec _stop_virtLocal
 	
-	_stop_emergency_prog
+	_tryExec "_stop_emergency_prog"
 	
 	_stop "$1"
 	
@@ -13232,12 +17789,77 @@ _timetest() {
 	_stop 1
 }
 
-_test_prog() {
-	true
+_testarglength() {
+	local testArgLength
+	
+	! testArgLength=$(getconf ARG_MAX) && _messageFAIL && _stop 1
+	
+	
+	# Typical UNIX.
+	if [[ "$testArgLength" -lt 131071 ]]
+	then
+		# Typical Cygwin. Marginal result at best.
+		[[ "$testArgLength" -ge 32000 ]] && uname -a | grep -i 'cygwin' > /dev/null 2>&1 && return 0
+		
+		_messageFAIL && _stop 1
+	fi
+	
+	_messagePASS
 }
 
+#_test_prog() {
+#	true
+#}
+
 _test() {
+	_messageNormal "Sanity..."
+	
+	! "$scriptAbsoluteLocation" _true && _messageFAIL && return 1
+	"$scriptAbsoluteLocation" _false && _messageFAIL && return 1
+	
+	local santiySessionID_length
+	santiySessionID_length=$(echo -n "$sessionid" | wc -c | tr -dc '0-9')
+	
+	[[ "$santiySessionID_length" -lt "18" ]] && _messageFAIL && return 1
+	[[ "$uidLengthPrefix" != "" ]] && [[ "$santiySessionID_length" -lt "$uidLengthPrefix" ]] && _messageFAIL && return 1
+	
+	[[ -e "$safeTmp" ]] && _messageFAIL && return 1
+	
 	_start
+	
+	[[ ! -e "$safeTmp" ]] && _messageFAIL && return 1
+	
+	local currentTestUID=$(_uid 245)
+	mkdir -p "$safeTmp"/"$currentTestUID"
+	echo > "$safeTmp"/"$currentTestUID"/"$currentTestUID"
+	
+	[[ ! -e "$safeTmp"/"$currentTestUID"/"$currentTestUID" ]] && _messageFAIL && return 1
+	
+	rm -f "$safeTmp"/"$currentTestUID"/"$currentTestUID"
+	rmdir "$safeTmp"/"$currentTestUID"
+	
+	[[ -e "$safeTmp"/"$currentTestUID" ]] && _messageFAIL && return 1
+	
+	echo 'true' > "$safeTmp"/shouldNotOverwrite
+	mv "$safeTmp"/doesNotExist "$safeTmp"/shouldNotOverwrite > /dev/null 2>&1 && _messageFAIL && return 1
+	[[ $(cat "$safeTmp"/shouldNotOverwrite) != "true" ]] && _messageFAIL && return 1
+	rm -f "$safeTmp"/shouldNotOverwrite > /dev/null 2>&1
+	
+	
+	_getDep flock
+	
+	( flock 200; echo > "$safeTmp"/ready ; sleep 3 ) 200>"$safeTmp"/flock &
+	sleep 1
+	if ( flock 200; ! [[ -e "$safeTmp"/ready ]] ) 200>"$safeTmp"/flock
+	then
+		_messageFAIL
+		_stop 1
+	fi
+	rm -f "$safeTmp"/flock > /dev/null 2>&1
+	rm -f "$safeTmp"/ready > /dev/null 2>&1
+	
+	_messagePASS
+	
 	
 	_messageNormal "Permissions..."
 	
@@ -13245,14 +17867,10 @@ _test() {
 	
 	_messagePASS
 	
+	#Environment generated by ubiquitous bash is typically 10000 characters.
 	echo -n -e '\E[1;32;46m Argument length...	\E[0m'
 	
-	local testArgLength
-	
-	! testArgLength=$(getconf ARG_MAX) && _messageFAIL && _stop 1
-	[[ "$testArgLength" -lt 131071 ]] && _messageFAIL && _stop 1
-	
-	_messagePASS
+	_testarglength
 	
 	_messageNormal "Absolute pathfinding..."
 	#_tryExec "_test_getAbsoluteLocation"
@@ -13321,8 +17939,9 @@ _test() {
 	
 	_getDep diff
 	
-	_tryExec "_test_package"
+	_test_readlink_f
 	
+	_tryExec "_test_package"
 	
 	_tryExec "_test_daemon"
 	
@@ -13396,6 +18015,10 @@ _test() {
 	_tryExec "_test_ethereum"
 	_tryExec "_test_ethereum_parity"
 	
+	_tryExec "_test_metaengine"
+	
+	_tryExec "_test_channel"
+	
 	[[ -e /dev/urandom ]] || echo /dev/urandom missing _stop
 	
 	_messagePASS
@@ -13404,14 +18027,14 @@ _test() {
 	_vector
 	_messagePASS
 	
-	_test_prog
+	_tryExec "_test_prog"
 	
 	_stop
 }
 
-_testBuilt_prog() {
-	true
-}
+#_testBuilt_prog() {
+#	true
+#}
 
 _testBuilt() {
 	_start
@@ -13429,7 +18052,7 @@ _testBuilt() {
 	
 	_tryExec "_testBuiltExtra"
 	
-	_testBuilt_prog
+	_tryExec "_testBuilt_prog"
 	
 	_messagePASS
 	
@@ -13488,19 +18111,19 @@ _find_setupCommands() {
 
 #Consider placing files like ' _vnc-machine-"$netName" ' in an "_index" folder for automatic installation.
 _setupCommands() {
-	#_find_setupCommands -name '_command' -exec "$scriptAbsoluteLocation" _setupCommand {} \;
+	#_find_setupCommands -name '_command' -exec "$scriptAbsoluteLocation" _setupCommand '{}' \;
 	
 	_tryExec "_setup_ssh_commands"
 	_tryExec "_setup_command_commands"
 }
 
-_setup_pre() {
-	true
-}
+#_setup_pre() {
+#	true
+#}
 
-_setup_prog() {
-	true
-}
+#_setup_prog() {
+#	true
+#}
 
 _setup() {
 	_start
@@ -13522,13 +18145,21 @@ _setup() {
 	
 	_setupCommands
 	
-	_setup_pre
+	_tryExec "_setup_pre"
 	
 	_tryExec "_setup_ssh"
 	
-	_setup_prog
+	_tryExec "_setup_prog"
 	
 	_stop
+}
+
+# DANGER: Especially not expected to modify system program behavior (eg. not to modify "$HOME"/.ssh ).
+# WARNING: Strictly expected to not modify anyting outside the script directory.
+_setup_local() {
+	export ub_setup_local='true'
+	
+	_setup
 }
 
 _test_package() {
@@ -13555,6 +18186,7 @@ _package() {
 	#cp -a "$scriptAbsoluteLocation" "$safeTmp"/package/"$scriptBasename"
 	cp -a "$scriptAbsoluteLocation" "$safeTmp"/package/
 	cp -a "$scriptAbsoluteFolder"/ops "$safeTmp"/package/
+	cp -a "$scriptAbsoluteFolder"/ops.sh "$safeTmp"/package/
 	
 	#cp -a "$scriptAbsoluteFolder"/_bin "$safeTmp"
 	#cp -a "$scriptAbsoluteFolder"/_config "$safeTmp"
@@ -13657,19 +18289,19 @@ _firefox_editHome_multitasking() {
 		return
 	fi
 	
-	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_command" "$@"
+	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_command" -P default "$@"
 }
 
 # ATTENTION
 # Override with "ops", point to "_firefox_editHome_multitasking", to allow "remote" instances of firefox for the user/machine global profile.
 _firefox_editHome() {
 	# TODO: Ideally, there should be an automatic check to determine whether a compatible firefox instance already existed, allowing "-no-remote" to be dropped.
-	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_command" -no-remote "$@"
+	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_command" -P default -no-remote "$@"
 }
 
 _firefox_userHome() {
 	#Always use "-no-remote".
-	"$scriptAbsoluteLocation" _userFakeHome "$scriptAbsoluteLocation" "_firefox_command" -no-remote "$@"
+	"$scriptAbsoluteLocation" _userFakeHome "$scriptAbsoluteLocation" "_firefox_command" -P default -no-remote "$@"
 }
 
 _v_firefox() {
@@ -13900,6 +18532,44 @@ export EMBEDDED="$matchingEMBEDDED"
 export keepKeys_SSH=true
 
 
+_deps_metaengine() {
+# 	#_deps_notLean
+	_deps_dev
+	
+	export enUb_metaengine="true"
+} 
+
+_compile_bash_metaengine() {
+	export includeScriptList
+	
+	#[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine"/undefined.sh )
+}
+
+_compile_bash_vars_metaengine() {
+	export includeScriptList
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/"/metaengine.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_diag.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_here.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_vars.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_parm.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_local.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/example"/example_metaengine_chain.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/example"/example_metaengine_object.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_chain.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_object.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_vars.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_divert.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_buffer.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_page.sh )
+}
+
 _findUbiquitous() {
 	export ubiquitiousLibDir="$scriptAbsoluteFolder"
 	
@@ -13960,8 +18630,25 @@ _init_deps() {
 	export enUb_enUb_x220t=""
 	
 	export enUb_user=""
+	
+	export enUb_metaengine=""
+	
+	export enUb_stopwatch=""
 }
 
+_deps_dev() {
+	export enUb_dev="true"
+}
+
+_deps_dev_heavy() {
+	_deps_notLean
+	export enUb_dev_heavy="true"
+}
+
+_deps_mount() {
+	_deps_notLean
+	export enUb_mount="true"
+}
 
 _deps_machineinfo() {
 	export enUb_machineinfo="true"
@@ -13979,6 +18666,10 @@ _deps_notLean() {
 	_deps_git
 	_deps_bup
 	export enUb_notLean="true"
+}
+
+_deps_distro() {
+	export enUb_distro="true"
 }
 
 _deps_build() {
@@ -14026,35 +18717,44 @@ _deps_image() {
 	export enUb_image="true"
 }
 
-_deps_virt() {
+_deps_virt_thick() {
+	_deps_distro
 	_deps_build
 	_deps_notLean
-	_deps_machineinfo
 	_deps_image
+	export enUb_virt_thick="true"
+}
+
+_deps_virt() {
+	_deps_machineinfo
 	export enUb_virt="true"
 }
 
 _deps_chroot() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	export enUb_ChRoot="true"
 }
 
 _deps_qemu() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	export enUb_QEMU="true"
 }
 
 _deps_vbox() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	export enUb_vbox="true"
 }
 
 _deps_docker() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	export enUb_docker="true"
 }
 
@@ -14073,6 +18773,7 @@ _deps_dosbox() {
 _deps_msw() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	_deps_qemu
 	_deps_vbox
 	_deps_wine
@@ -14086,7 +18787,8 @@ _deps_fakehome() {
 }
 
 _deps_abstractfs() {
-	_deps_notLean
+	_deps_git
+	_deps_bup
 	_deps_virt
 	export enUb_abstractfs="true"
 }
@@ -14120,6 +18822,21 @@ _deps_user() {
 	export enUb_user="true"
 }
 
+_deps_channel() {
+	export enUb_channel="true"
+}
+
+_deps_stopwatch() {
+	export enUb_stopwatch="true"
+}
+
+#placeholder, define under "metaengine/build"
+#_deps_metaengine() {
+#	_deps_notLean
+#	
+#	export enUb_metaengine="true"
+#}
+
 
 _generate_bash() {
 	
@@ -14142,7 +18859,9 @@ _generate_bash() {
 	
 	_compile_bash_vars_global
 	
+	_compile_bash_extension
 	_compile_bash_selfHost
+	_compile_bash_selfHost_prog
 	
 	_compile_bash_overrides
 	
@@ -14205,23 +18924,60 @@ _compile_bash_deps() {
 		_deps_proxy
 		_deps_proxy_special
 		
+		_deps_channel
+		
 		_deps_git
 		_deps_bup
 		
 		_deps_command
 		_deps_synergy
 		
+		_deps_stopwatch
+		
+		return 0
+	fi
+	
+	if [[ "$1" == "processor" ]]
+	then
+		
+		_deps_dev
+		
+		_deps_channel
+		
+		_deps_metaengine
+		
+		return 0
+	fi
+	
+	if [[ "$1" == "abstract" ]]
+	then
+		_deps_dev
+		
+		_deps_channel
+		
+		_deps_metaengine
+		
+		_deps_abstractfs
+		
 		return 0
 	fi
 	
 	if [[ "$1" == "core" ]]
 	then
+		_deps_dev_heavy
+		_deps_dev
+		
+		_deps_mount
+		
 		_deps_notLean
 		_deps_os_x11
 		
 		_deps_x11
 		_deps_image
+		
 		_deps_virt
+		_deps_virt_thick
+		
 		_deps_chroot
 		_deps_qemu
 		_deps_vbox
@@ -14232,8 +18988,14 @@ _compile_bash_deps() {
 		_deps_fakehome
 		_deps_abstractfs
 		
+		_deps_channel
+		
+		_deps_metaengine
+		
 		_deps_git
 		_deps_bup
+		
+		_deps_distro
 		
 		#_deps_blockchain
 		
@@ -14258,12 +19020,20 @@ _compile_bash_deps() {
 	
 	if [[ "$1" == "" ]] || [[ "$1" == "ubiquitous_bash" ]] || [[ "$1" == "ubiquitous_bash.sh" ]] || [[ "$1" == "complete" ]]
 	then
+		_deps_dev_heavy
+		_deps_dev
+		
+		_deps_mount
+		
 		_deps_notLean
 		_deps_os_x11
 		
 		_deps_x11
 		_deps_image
+		
 		_deps_virt
+		_deps_virt_thick
+		
 		_deps_chroot
 		_deps_qemu
 		_deps_vbox
@@ -14274,8 +19044,14 @@ _compile_bash_deps() {
 		_deps_fakehome
 		_deps_abstractfs
 		
+		_deps_channel
+		
+		_deps_metaengine
+		
 		_deps_git
 		_deps_bup
+		
+		_deps_distro
 		
 		_deps_blockchain
 		
@@ -14319,6 +19095,8 @@ _compile_bash_header() {
 	
 	includeScriptList+=( "os/override"/override.sh )
 	includeScriptList+=( "os/override"/override_prog.sh )
+	
+	includeScriptList+=( "os/override"/override_cygwin.sh )
 }
 
 _compile_bash_header_program() {
@@ -14334,12 +19112,16 @@ _compile_bash_essential_utilities() {
 	includeScriptList+=( "labels"/utilitiesLabel.sh )
 	includeScriptList+=( "generic/filesystem"/absolutepaths.sh )
 	includeScriptList+=( "generic/filesystem"/safedelete.sh )
+	includeScriptList+=( "generic/filesystem"/allLogic.sh )
 	includeScriptList+=( "generic/process"/timeout.sh )
 	includeScriptList+=( "generic/process"/terminate.sh )
+	includeScriptList+=( "generic"/condition.sh )
 	includeScriptList+=( "generic"/uid.sh )
 	includeScriptList+=( "generic/filesystem/permissions"/checkpermissions.sh )
 	includeScriptList+=( "generic"/findInfrastructure.sh )
 	includeScriptList+=( "generic"/gather.sh )
+	
+	includeScriptList+=( "generic/process"/priority.sh )
 	
 	includeScriptList+=( "generic/filesystem"/internal.sh )
 	
@@ -14348,6 +19130,7 @@ _compile_bash_essential_utilities() {
 	includeScriptList+=( "generic"/config/mustcarry.sh )
 	
 	[[ "$enUb_buildBash" == "true" ]] && includeScriptList+=( "build/bash"/include_bash.sh )
+	[[ "$enUb_buildBash" == "true" ]] && includeScriptList+=( "build/bash"/include_bash_prog.sh )
 }
 
 _compile_bash_utilities() {
@@ -14362,11 +19145,13 @@ _compile_bash_utilities() {
 	
 	includeScriptList+=( "generic/filesystem"/relink.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/bindmountmanager.sh )
+	[[ "$enUb_mount" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/bindmountmanager.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/waitumount.sh )
+	[[ "$enUb_mount" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/waitumount.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/mountchecks.sh )
+	[[ "$enUb_mount" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/mountchecks.sh )
+	
+	[[ "$enUb_channel" == "true" ]] && includeScriptList+=( "generic/process/"channel.sh )
 	
 	includeScriptList+=( "generic/process"/waitforprocess.sh )
 	
@@ -14389,6 +19174,10 @@ _compile_bash_utilities() {
 	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/ssh"/ssh.sh )
 	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/ssh"/autossh.sh )
 	
+	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/vnc"/vnc_vncserver_operations.sh )
+	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/vnc"/vnc_vncviewer_operations.sh )
+	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/vnc"/vnc_x11vnc_operations.sh )
+	
 	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/proxyrouter"/here_proxyrouter.sh )
 	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/proxyrouter"/proxyrouter.sh )
 	
@@ -14408,22 +19197,24 @@ _compile_bash_utilities() {
 	includeScriptList+=( "special"/mustberoot.sh )
 	includeScriptList+=( "special"/mustgetsudo.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "special/gosu"/gosu.sh )
-	
 	includeScriptList+=( "special"/uuid.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "instrumentation"/bashdb/bashdb.sh )
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "instrumentation"/profiling/stopwatch.sh )
+	[[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "instrumentation"/bashdb/bashdb.sh )
+	([[ "$enUb_notLean" == "true" ]] || [[ "$enUb_stopwatch" == "true" ]]) && includeScriptList+=( "instrumentation"/profiling/stopwatch.sh )
 }
 
 _compile_bash_utilities_virtualization() {
 	export includeScriptList
 	
+	# ATTENTION: Although the only known requirement for gosu is virtualization, it may be necessary wherever sudo is not sufficient to drop privileges.
+	[[ "$enUb_virt_thick" == "true" ]] && includeScriptList+=( "special/gosu"/gosu.sh )
+	
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/virtenv.sh )
 	
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/findInfrastructure_virt.sh )
 	
-	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/osTranslation.sh )
+	# Any script managing MSW from UNIX may need basic file parameter translation without needing complete remapping. Example: "_vncviewer_operations" .
+	( [[ "$enUb_virt" == "true" ]] || [[ "$enUb_proxy" == "true" ]] ) && includeScriptList+=( "virtualization"/osTranslation.sh )
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/localPathTranslation.sh )
 	
 	[[ "$enUb_abstractfs" == "true" ]] && includeScriptList+=( "virtualization/abstractfs"/abstractfs.sh )
@@ -14482,19 +19273,19 @@ _compile_bash_shortcuts() {
 	
 	includeScriptList+=( "shortcuts/prompt"/visualPrompt.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev"/devsearch.sh )
+	[[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "shortcuts/dev"/devsearch.sh )
 	
-	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devemacs.sh )
-	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devatom.sh )
-	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_abstractfs" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/deveclipse.sh )
+	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devemacs.sh )
+	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devatom.sh )
+	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_abstractfs" == "true" ]] && [[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/deveclipse.sh )
 	
 	includeScriptList+=( "shortcuts/dev/query"/devquery.sh )
 	
-	includeScriptList+=( "shortcuts/dev/scope"/devscope.sh )
-	includeScriptList+=( "shortcuts/dev/scope"/devscope_here.sh )
+	[[ "$enUb_dev" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope.sh )
+	[[ "$enUb_dev" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope_here.sh )
 	
 	# WARNING: Some apps may have specific dependencies (eg. fakeHome, abstractfs, eclipse, atom).
-	includeScriptList+=( "shortcuts/dev/scope"/devscope_app.sh )
+	[[ "$enUb_dev" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope_app.sh )
 	
 	[[ "$enUb_git" == "true" ]] && includeScriptList+=( "shortcuts/git"/git.sh )
 	[[ "$enUb_git" == "true" ]] && includeScriptList+=( "shortcuts/git"/gitBare.sh )
@@ -14504,12 +19295,12 @@ _compile_bash_shortcuts() {
 	[[ "$enUb_image" == "true" ]] && includeScriptList+=( "shortcuts/mkboot"/here_mkboot.sh )
 	[[ "$enUb_image" == "true" ]] && includeScriptList+=( "shortcuts/mkboot"/mkboot.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/distro"/distro.sh )
+	[[ "$enUb_notLean" == "true" ]] && [[ "$enUb_distro" == "true" ]] && includeScriptList+=( "shortcuts/distro"/distro.sh )
 	
-	[[ "$enUb_QEMU" == "true" ]] && includeScriptList+=( "shortcuts/distro/debian"/createDebian.sh )
-	[[ "$enUb_image" == "true" ]] && includeScriptList+=( "shortcuts/distro/raspbian"/createRaspbian.sh )
+	[[ "$enUb_QEMU" == "true" ]] && [[ "$enUb_distro" == "true" ]] && includeScriptList+=( "shortcuts/distro/debian"/createDebian.sh )
+	[[ "$enUb_image" == "true" ]] && [[ "$enUb_distro" == "true" ]] && includeScriptList+=( "shortcuts/distro/raspbian"/createRaspbian.sh )
 	
-	[[ "$enUb_msw" == "true" ]] && includeScriptList+=( "shortcuts/distro/msw"/msw.sh )
+	[[ "$enUb_msw" == "true" ]] && [[ "$enUb_distro" == "true" ]] && includeScriptList+=( "shortcuts/distro/msw"/msw.sh )
 	
 	[[ "$enUb_x11" == "true" ]] && includeScriptList+=( "shortcuts/x11"/testx11.sh )
 	[[ "$enUb_x11" == "true" ]] && includeScriptList+=( "shortcuts/x11"/xinput.sh )
@@ -14536,6 +19327,12 @@ _compile_bash_shortcuts_setup() {
 	
 	includeScriptList+=( "shortcuts"/setupUbiquitous_here.sh )
 	includeScriptList+=( "shortcuts"/setupUbiquitous.sh )
+}
+
+_compile_bash_shortcuts_os() {
+	export includeScriptList
+	
+	includeScriptList+=( "shortcuts/os/unix/nice"/renice.sh )
 }
 
 _compile_bash_bundled() {
@@ -14574,6 +19371,8 @@ _compile_bash_vars_basic() {
 
 _compile_bash_vars_global() {
 	export includeScriptList
+	
+	includeScriptList+=( "structure"/resetvars.sh )
 	
 	#Optional, rarely used, intended for overload.
 	includeScriptList+=( "structure"/prefixvars.sh )
@@ -14623,7 +19422,9 @@ _compile_bash_buildin() {
 	export includeScriptList
 	
 	[[ "$enUb_build" == "true" ]] && includeScriptList+=( "generic/hello"/hello.sh )
-	[[ "$enUb_build" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/process"/idle.sh )
+	
+	# ATTENTION: Running while X11 session is idle is a common requirement for a daemon.
+	[[ "$enUb_build" == "true" ]] && [[ "$enUb_x11" == "true" ]] && includeScriptList+=( "generic/process"/idle.sh )
 	
 	[[ "$enUb_build" == "true" ]] && includeScriptList+=( "structure"/build.sh )
 }
@@ -14659,7 +19460,7 @@ _compile_bash_config() {
 	
 	
 	#####Hardcoded
-	includeScriptList+=( netvars.sh )
+	includeScriptList+=( "_config"/netvars.sh )
 }
 
 _compile_bash_selfHost() {
@@ -14690,6 +19491,23 @@ _compile_bash_entry() {
 	
 	includeScriptList+=( "structure"/entry.sh )
 }
+
+_compile_bash_extension() {
+	export includeScriptList
+	
+	[[ "$enUb_buildBashUbiquitous" == "true" ]] && includeScriptList+=( "metaengine/build"/deps_meta.sh )
+	[[ "$enUb_buildBashUbiquitous" == "true" ]] && includeScriptList+=( "metaengine/build"/compile_meta.sh )
+}
+
+#placehoder, define under "metaengine/build"
+#_compile_bash_metaengine() {
+#	true
+#}
+
+#placeholder, define under "metaengine/build"
+#_compile_bash_vars_metaengine() {
+#	true
+#}
 
 #Ubiquitous Bash compile script. Override with "ops", "_config", or "_prog" directives through "compile_bash_prog.sh" to compile other work products through similar scripting.
 # "$1" == configuration
@@ -14733,6 +19551,8 @@ _compile_bash() {
 	_compile_bash_shortcuts_setup
 	_compile_bash_shortcuts_setup_prog
 	
+	_compile_bash_shortcuts_os
+	
 	_compile_bash_bundled
 	_compile_bash_bundled_prog
 	
@@ -14741,6 +19561,8 @@ _compile_bash() {
 	_compile_bash_user
 	
 	_compile_bash_hardware
+	
+	_tryExec _compile_bash_metaengine
 	
 	_compile_bash_vars_basic
 	_compile_bash_vars_basic_prog
@@ -14756,6 +19578,8 @@ _compile_bash() {
 	_compile_bash_vars_virtualization_prog
 	_compile_bash_vars_bundled
 	_compile_bash_vars_bundled_prog
+	
+	_tryExec _compile_bash_vars_metaengine
 	
 	_compile_bash_buildin
 	_compile_bash_buildin_prog
@@ -14774,6 +19598,7 @@ _compile_bash() {
 	_compile_bash_config
 	_compile_bash_config_prog
 	
+	_compile_bash_extension
 	_compile_bash_selfHost
 	_compile_bash_selfHost_prog
 	
@@ -14978,7 +19803,18 @@ _compile_bash_entry_prog() {
 #May allow traps to work properly in simple scripts which do not include more comprehensive "_stop" or "_stop_emergency" implementations.
 if ! type _stop > /dev/null 2>&1
 then
+	# ATTENTION: Consider carefully, override with "ops".
+	# WARNING: Unfortunate, but apparently necessary, workaround for script termintaing while "sleep" or similar run under background.
+	_stop_stty_echo() {
+		#true
+		
+		stty echo --file=/dev/tty > /dev/null 2>&1
+		
+		#[[ "$ubFoundEchoStatus" != "" ]] && stty --file=/dev/tty "$ubFoundEchoStatus" 2> /dev/null
+	}
 	_stop() {
+		_stop_stty_echo
+		
 		if [[ "$1" != "" ]]
 		then
 			exit "$1"
@@ -15012,17 +19848,31 @@ fi
 #fi
 
 #Override functions with external definitions from a separate file if available.
+# CAUTION: Recommend only "ops" or "ops.sh" . Using both can cause confusion.
+# ATTENTION: Recommend "ops.sh" only when unusually long. Specifically intended for "CoreAutoSSH" .
 if [[ -e "$objectDir"/ops ]]
 then
 	. "$objectDir"/ops
+fi
+if [[ -e "$objectDir"/ops.sh ]]
+then
+	. "$objectDir"/ops.sh
 fi
 if [[ -e "$scriptLocal"/ops ]]
 then
 	. "$scriptLocal"/ops
 fi
+if [[ -e "$scriptLocal"/ops.sh ]]
+then
+	. "$scriptLocal"/ops.sh
+fi
 if [[ -e "$scriptLocal"/ssh/ops ]]
 then
 	. "$scriptLocal"/ssh/ops
+fi
+if [[ -e "$scriptLocal"/ssh/ops.sh ]]
+then
+	. "$scriptLocal"/ssh/ops.sh
 fi
 
 #WILL BE OVERWRITTEN FREQUENTLY.

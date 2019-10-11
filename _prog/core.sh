@@ -73,19 +73,19 @@ _firefox_editHome_multitasking() {
 		return
 	fi
 	
-	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_command" "$@"
+	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_command" -P default "$@"
 }
 
 # ATTENTION
 # Override with "ops", point to "_firefox_editHome_multitasking", to allow "remote" instances of firefox for the user/machine global profile.
 _firefox_editHome() {
 	# TODO: Ideally, there should be an automatic check to determine whether a compatible firefox instance already existed, allowing "-no-remote" to be dropped.
-	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_command" -no-remote "$@"
+	"$scriptAbsoluteLocation" _editFakeHome "$scriptAbsoluteLocation" "_firefox_command" -P default -no-remote "$@"
 }
 
 _firefox_userHome() {
 	#Always use "-no-remote".
-	"$scriptAbsoluteLocation" _userFakeHome "$scriptAbsoluteLocation" "_firefox_command" -no-remote "$@"
+	"$scriptAbsoluteLocation" _userFakeHome "$scriptAbsoluteLocation" "_firefox_command" -P default -no-remote "$@"
 }
 
 _v_firefox() {

@@ -43,6 +43,22 @@ _messagePlain_probe_expr() {
 	return 0
 }
 
+#Blue. Diagnostic instrumentation.
+_messagePlain_probe_var() {
+	echo -e -n '\E[0;34m '
+	
+	echo -n "$1"'= '
+	
+	eval echo -e -n \$"$1"
+	
+	echo -e -n ' \E[0m'
+	echo
+	return 0
+}
+_messageVar() {
+	_messagePlain_probe_var "$@"
+}
+
 #Green. Working as expected.
 _messagePlain_good() {
 	echo -e -n '\E[0;32m '
@@ -123,7 +139,91 @@ fi
 
 #Override.
 
+# WARNING: Only partially compatible.
+if ! type md5sum > /dev/null 2>&1 && type md5 > /dev/null 2>&1
+then
+	md5sum() {
+		md5 "$@"
+	}
+fi
+
+# DANGER: No production use. Testing only.
+# WARNING: Only partially compatible.
+#if ! type md5 > /dev/null 2>&1 && type md5sum > /dev/null 2>&1
+#then
+#	md5() {
+#		md5sum "$@"
+#	}
+#fi
+
 #Override (Program).
+
+#Override, cygwin.
+
+# ATTENTION: User must launch "tmux" (no parameters) in a graphical Cygwin terminal.
+# Launches graphical application through "tmux new-window" if available.
+# https://superuser.com/questions/531787/starting-windows-gui-program-in-windows-through-cygwin-sshd-from-ssh-client
+_workaround_cygwin_tmux() {
+	if pgrep -u "$USER" ^tmux$ > /dev/null 2>&1
+	then
+		tmux new-window "$@"
+		return "$?"
+	fi
+	
+	"$@"
+	return "$?"
+}
+
+if ! type nmap > /dev/null 2>&1 && type '/cygdrive/c/Program Files/Nmap/nmap.exe' > /dev/null 2>&1
+then
+	nmap() {
+		'/cygdrive/c/Program Files/Nmap/nmap.exe' "$@"
+	}
+fi
+
+if ! type nmap > /dev/null 2>&1 && type '/cygdrive/c/Program Files (x86)/Nmap/nmap.exe' > /dev/null 2>&1
+then
+	nmap() {
+		'/cygdrive/c/Program Files (x86)/Nmap/nmap.exe' "$@"
+	}
+fi
+
+# DANGER: Severely differing functionality. Intended only to stand in for "ip addr show" and similar.
+if ! type ip > /dev/null 2>&1 && type 'ipconfig' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1
+then
+	ip() {
+		if [[ "$1" == "addr" ]] && [[ "$2" == "show" ]]
+		then
+			ipconfig
+			return $?
+		fi
+		
+		return 1
+	}
+fi
+
+
+
+# WARNING: Native 'vncviewer.exe' is a GUI app, and cannot be launched directly from Cygwin SSH server.
+
+#if ! type vncviewer > /dev/null 2>&1 && type '/cygdrive/c/Program Files/TigerVNC/vncviewer.exe' > /dev/null 2>&1
+
+if type '/cygdrive/c/Program Files/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1
+then
+	export override_cygwin_vncviewer='true'
+	vncviewer() {
+		_workaround_cygwin_tmux '/cygdrive/c/Program Files/TigerVNC/vncviewer.exe' "$@"
+	}
+fi
+
+if type '/cygdrive/c/Program Files (x86)/TigerVNC/vncviewer.exe' > /dev/null 2>&1 && uname -a | grep -i cygwin > /dev/null 2>&1
+then
+	export override_cygwin_vncviewer='true'
+	vncviewer() {
+		_workaround_cygwin_tmux '/cygdrive/c/Program Files (x86)/TigerVNC/vncviewer.exe' "$@"
+	}
+fi
+
 
 #####Utilities
 
@@ -294,6 +394,38 @@ _test_realpath_L() {
 
 _test_realpath() {
 	_test_realpath_L_s "$@"
+}
+
+_test_readlink_f_sequence() {
+	_start
+	
+	echo > "$safeTmp"/realFile
+	ln -s "$safeTmp"/realFile "$safeTmp"/linkA
+	ln -s "$safeTmp"/linkA "$safeTmp"/linkB
+	
+	local currentReadlinkResult
+	currentReadlinkResult=$(readlink -f "$safeTmp"/linkB)
+	
+	local currentReadlinkResultBasename
+	currentReadlinkResultBasename=$(basename "$currentReadlinkResult")
+	
+	if [[ "$currentReadlinkResultBasename" != "realFile" ]]
+	then
+		#echo 'fail: readlink -f'
+		_stop 1
+	fi
+	
+	_stop 0
+}
+
+_test_readlink_f() {
+	if ! "$scriptAbsoluteLocation" _test_readlink_f_sequence
+	then
+		echo 'fail: readlink -f'
+		_stop 1
+	fi
+	
+	return 0
 }
 
 _compat_realpath() {
@@ -571,10 +703,13 @@ _safeRMR() {
 	#[[ "$1" == "/home/$USER"* ]] && safeToRM="true"
 	[[ "$1" == "/tmp/"* ]] && safeToRM="true"
 	
+	# WARNING: Allows removal of temporary folders created by current ubiquitous bash session only.
+	[[ "$sessionid" != "" ]] && [[ "$1" == *"$sessionid"* ]] && safeToRM="true"
+	
 	[[ "$safeToRM" == "false" ]] && return 1
 	
 	#Safeguards/
-	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" | grep -i '\.git$' >/dev/null 2>&1 && return 1
+	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" 2>/dev/null | grep -i '\.git$' >/dev/null 2>&1 && return 1
 	
 	#Validate necessary tools were available for path building and checks.
 	#! type realpath > /dev/null 2>&1 && return 1
@@ -587,7 +722,7 @@ _safeRMR() {
 		#sleep 0
 		#echo "$1"
 		# WARNING Recommend against adding any non-portable flags.
-		rm -rf "$1"
+		rm -rf "$1" > /dev/null 2>&1
 	fi
 }
 
@@ -651,10 +786,13 @@ _safePath() {
 	#[[ "$1" == "/home/$USER"* ]] && safeToRM="true"
 	[[ "$1" == "/tmp/"* ]] && safeToRM="true"
 	
+	# WARNING: Allows removal of temporary folders created by current ubiquitous bash session only.
+	[[ "$sessionid" != "" ]] && [[ "$1" == *"$sessionid"* ]] && safeToRM="true"
+	
 	[[ "$safeToRM" == "false" ]] && return 1
 	
 	#Safeguards/
-	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" | grep -i '\.git$' >/dev/null 2>&1 && return 1
+	[[ "$safeToDeleteGit" != "true" ]] && [[ -d "$1" ]] && [[ -e "$1" ]] && find "$1" 2>/dev/null | grep -i '\.git$' >/dev/null 2>&1 && return 1
 	
 	#Validate necessary tools were available for path building and checks.
 	#! type realpath > /dev/null 2>&1 && return 1
@@ -760,6 +898,23 @@ _command_safeBackup() {
 
 
 
+_all_exist() {
+	local currentArg
+	for currentArg in "$@"
+	do
+		! [[ -e "$currentArg" ]] && return 1
+	done
+	
+	return 0
+}
+
+_wait_not_all_exist() {
+	while ! _all_exist "$@"
+	do
+		sleep 0.1
+	done
+}
+
 #http://stackoverflow.com/questions/687948/timeout-a-command-in-bash-without-unnecessary-delay
 _timeout() { ( set +b; sleep "$1" & "${@:2}" & wait -n; r=$?; kill -9 `jobs -p`; exit $r; ) } 
 
@@ -780,14 +935,58 @@ _terminate() {
 	rm "$processListFile"
 }
 
-_terminateAll() {
+_terminateMetaHostAll() {
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	
 	local processListFile
 	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
 	
 	local currentPID
 	
-	cat ./w_*/.pid >> "$processListFile" 2> /dev/null
+	cat ./.m_*/.pid >> "$processListFile" 2> /dev/null
+	
+	while read -r currentPID
+	do
+		pkill -P "$currentPID"
+		kill "$currentPID"
+	done < "$processListFile"
+	
+	rm "$processListFile"
+	
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 0.3
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 1
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 3
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 10
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 20
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 20
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	sleep 20
+	! ls -d -1 ./.m_*/.pid > /dev/null 2>&1 && return 0
+	
+	return 1
+}
+
+_terminateAll() {
+	_terminateMetaHostAll
+	
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	local currentPID
+	
+	
 	cat ./.s_*/.pid >> "$processListFile" 2> /dev/null
+	
+	cat ./.e_*/.pid >> "$processListFile" 2> /dev/null
+	cat ./.m_*/.pid >> "$processListFile" 2> /dev/null
+	
+	cat ./w_*/.pid >> "$processListFile" 2> /dev/null
 	
 	while read -r currentPID
 	do
@@ -798,12 +997,23 @@ _terminateAll() {
 	rm "$processListFile"
 }
 
+_condition_lines_zero() {
+	local currentLineCount
+	currentLineCount=$(wc -l)
+	
+	[[ "$currentLineCount" == 0 ]] && return 0
+	return 1
+}
+
 #Generates random alphanumeric characters, default length 18.
 _uid() {
-	local uidLength
-	! [[ -z "$1" ]] && uidLength="$1" || uidLength=18
-	
-	cat /dev/urandom 2> /dev/null | base64 2> /dev/null | tr -dc 'a-zA-Z0-9' 2> /dev/null | head -c "$uidLength" 2> /dev/null
+	local curentLengthUID
+
+	currentLengthUID="18"
+	! [[ -z "$uidLengthPrefix" ]] && ! [[ "$uidLengthPrefix" -lt "18" ]] && currentLengthUID="$uidLengthPrefix"
+	! [[ -z "$1" ]] && currentLengthUID="$1"
+
+	cat /dev/urandom 2> /dev/null | base64 2> /dev/null | tr -dc 'a-zA-Z0-9' 2> /dev/null | head -c "$currentLengthUID" 2> /dev/null
 }
 
 _compat_stat_c_run() {
@@ -901,6 +1111,224 @@ _test_permissions_ubiquitous() {
 #"${globalArgs[@]}"
 _gather_params() {
 	export globalArgs=("${@}")
+}
+
+_self_critial() {
+	_priority_critical_pid "$$"
+}
+
+_self_interactive() {
+	_priority_interactive_pid "$$"
+}
+
+_self_background() {
+	_priority_background_pid "$$"
+}
+
+_self_idle() {
+	_priority_idle_pid "$$"
+}
+
+_self_app() {
+	_priority_app_pid "$$"
+}
+
+_self_zero() {
+	_priority_zero_pid "$$"
+}
+
+
+#Example.
+_priority_critical() {
+	_priority_dispatch "_priority_critical_pid"
+}
+
+_priority_critical_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 2 -p "$1"
+	! sudo -n renice -15 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_critical_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	_priority_critical_pid_root "$1" && return 0
+	
+	ionice -c 2 -n 4 -p "$1"
+	! renice 0 -p "$1" && return 1
+	
+	return 1
+}
+
+_priority_interactive_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 2 -p "$1"
+	! sudo -n renice -10 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_interactive_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	_priority_interactive_pid_root "$1" && return 0
+	
+	ionice -c 2 -n 4 -p "$1"
+	! renice 0 -p "$1" && return 1
+	
+	return 1
+}
+
+_priority_app_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 3 -p "$1"
+	! sudo -n renice -5 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_app_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	_priority_app_pid_root "$1" && return 0
+	
+	ionice -c 2 -n 4 -p "$1"
+	! renice 0 -p "$1" && return 1
+	
+	return 1
+}
+
+_priority_background_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 5 -p "$1"
+	! sudo -n renice +5 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_background_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	if ! type ionice > /dev/null 2>&1 || ! groups | grep -E 'wheel|sudo' > /dev/null 2>&1
+	then
+		renice +5 -p "$1"
+		return 0
+	fi
+	
+	_priority_background_pid_root "$1" && return 0
+	
+	ionice -c 2 -n 5 -p "$1"
+	
+	renice +5 -p "$1"
+}
+
+
+
+_priority_idle_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 3 -p "$1"
+	! sudo -n renice +15 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_idle_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	if ! type ionice > /dev/null 2>&1 || ! groups | grep -E 'wheel|sudo' > /dev/null 2>&1
+	then
+		renice +15 -p "$1"
+		return 0
+	fi
+	
+	_priority_idle_pid_root "$1" && return 0
+	
+	#https://linux.die.net/man/1/ionice
+	ionice -c 3 -p "$1"
+	
+	renice +15 -p "$1"
+}
+
+_priority_zero_pid_root() {
+	! _wantSudo && return 1
+	
+	sudo -n ionice -c 2 -n 4 -p "$1"
+	! sudo -n renice 0 -p "$1" && return 1
+	
+	return 0
+}
+
+_priority_zero_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	_priority_zero_pid_root "$1" && return 0
+	
+	#https://linux.die.net/man/1/ionice
+	ionice -c 2 -n 4 -p "$1"
+	
+	renice 0 -p "$1"
+}
+
+# WARNING: Untested.
+_priority_dispatch() {
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	echo "$1" >> "$processListFile"
+	pgrep -P "$1" 2>/dev/null >> "$processListFile"
+	
+	local currentPID
+	
+	while read -r currentPID
+	do
+		"$@" "$currentPID"
+	done < "$processListFile"
+	
+	rm "$processListFile"
+}
+
+# WARNING: Untested.
+_priority_enumerate_pid() {
+	[[ "$1" == "" ]] && return 1
+	
+	echo "$1"
+	pgrep -P "$1" 2>/dev/null
+}
+
+_priority_enumerate_pattern() {
+	local processListFile
+	processListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	echo -n >> "$processListFile"
+	
+	pgrep "$1" >> "$processListFile"
+	
+	
+	local parentListFile
+	parentListFile="$scriptAbsoluteFolder"/.pidlist_$(_uid)
+	
+	echo -n >> "$parentListFile"
+	
+	local currentPID
+	
+	while read -r currentPID
+	do
+		pgrep -P "$currentPID" 2>/dev/null > "$parentListFile"
+	done < "$processListFile"
+	
+	cat "$processListFile"
+	cat "$parentListFile"
+	
+	
+	rm "$processListFile"
+	rm "$parentListFile"
 }
 
 _instance_internal() {
@@ -1031,6 +1459,15 @@ _messageColors() {
 	return 0
 }
 
+#Purple. User must do something manually to proceed. NOT to be used for dependency installation requests - use probe, bad, and fail statements for that.
+_messagePlain_request() {
+	echo -e -n '\E[0;35m '
+	echo -n "$@"
+	echo -e -n ' \E[0m'
+	echo
+	return 0
+}
+
 #Cyan. Harmless status messages.
 #"generic/ubiquitousheader.sh"
 _messagePlain_nominal() {
@@ -1061,6 +1498,23 @@ _messagePlain_probe_expr() {
 	return 0
 }
 
+#Blue. Diagnostic instrumentation.
+#"generic/ubiquitousheader.sh"
+_messagePlain_probe_var() {
+	echo -e -n '\E[0;34m '
+	
+	echo -n "$1"'= '
+	
+	eval echo -e -n \$"$1"
+	
+	echo -e -n ' \E[0m'
+	echo
+	return 0
+}
+_messageVar() {
+	_messagePlain_probe_var "$@"
+}
+
 #Green. Working as expected.
 #"generic/ubiquitousheader.sh"
 _messagePlain_good() {
@@ -1088,6 +1542,25 @@ _messagePlain_bad() {
 	echo -e -n ' \E[0m'
 	echo
 	return 0
+}
+
+#Blue. Diagnostic instrumentation.
+#Prints "$@" and runs "$@".
+# WARNING: Use with care.
+_messagePlain_probe_cmd() {
+	echo -e -n '\E[0;34m '
+	
+	_safeEcho "$@"
+	
+	echo -e -n ' \E[0m'
+	echo
+	
+	"$@"
+	
+	return
+}
+_messageCMD() {
+	_messagePlain_probe_cmd "$@"
 }
 
 #Demarcate major steps.
@@ -1200,13 +1673,17 @@ _includeFile() {
 	return 1
 }
 
-#Provide only approximate, realative paths. These will be disassembled and treated as a search query following stricti preferences
+#Provide only approximate, realative paths. These will be disassembled and treated as a search query following strict preferences.
 #"generic/filesystem/absolutepaths.sh"
 _includeScript() {
+	_tryExec "_includeScript_prog" "$1" && return 0
 
 	local includeScriptFilename=$(basename "$1")
 	local includeScriptSubdirectory=$(dirname "$1")
 	
+	_includeFile "$configDir"/"$includeScriptSubdirectory"/"$includeScriptFilename" && return 0
+	
+	_includeFile "$configDir"/"$includeScriptFilename" && return 0
 	
 	_includeFile "$progDir"/"$includeScriptSubdirectory"/"$includeScriptFilename" && return 0
 	
@@ -1215,8 +1692,6 @@ _includeScript() {
 	_includeFile "$ubiquitiousLibDir"/"$includeScriptSubdirectory"/"$includeScriptFilename" && return 0
 	
 	_includeFile "$ubiquitiousLibDir"/"$includeScriptFilename" && return 0
-	
-	_includeFile "$configDir"/"$includeScriptFilename" && return 0
 	
 	#[[ "$configBaseDir" == "" ]] && configBaseDir="_config"
 	[[ "$configBaseDir" == "" ]] && configBaseDir=$(basename "$configDir")
@@ -1249,6 +1724,17 @@ _includeScripts() {
 	done
 }
 
+# WARNING: Untested.
+#_includeScript_prog() {
+#	false
+	
+	# WARNING: Not recommended. Create folders and submodules under "_prog" instead, as in "_prog/libName".
+	#_includeFile "$scriptLib"/libName/"$includeScriptSubdirectory"/"$includeScriptFilename" && return 0
+	#_includeFile "$scriptLib"/libName/"$includeScriptFilename" && return 0
+	
+	#return 1
+#}
+
 #Gets filename extension, specifically any last three characters in given string.
 #"$1" == filename
 _getExt() {
@@ -1258,7 +1744,7 @@ _getExt() {
 #Reports either the directory provided, or the directory of the file provided.
 _findDir() {
 	local dirIn=$(_getAbsoluteLocation "$1")
-	dirInLogical=$(realpath -L -s "$dirIn")
+	dirInLogical=$(_realpath_L_s "$dirIn")
 	
 	if [[ -d "$dirInLogical" ]]
 	then
@@ -1285,33 +1771,46 @@ _discoverResource() {
 }
 
 _rmlink() {
+	[[ "$1" == "/dev/null" ]] && return 1
+	
 	[[ -h "$1" ]] && rm -f "$1" && return 0
+	
 	! [[ -e "$1" ]] && return 0
+	
 	return 1
 }
 
 #Like "ln -sf", but will not proceed if target is not link and exists (ie. will not erase files).
-_relink_sequence() {
-
+_relink_procedure() {
 	#Do not update correct symlink.
 	local existingLinkTarget
 	existingLinkTarget=$(readlink "$2")
 	[[ "$existingLinkTarget" == "$1" ]] && return 0
 	
 	! [[ "$relinkRelativeUb" == "true" ]] && _rmlink "$2" && ln -s "$1" "$2" && return 0
-	[[ "$relinkRelativeUb" == "true" ]] && _rmlink "$2" && ln -s -r "$1" "$2" && return 0
+	
+	if [[ "$relinkRelativeUb" == "true" ]]
+	then
+		_rmlink "$2" && ln -s --relative "$1" "$2" && return 0
+	fi
 	
 	return 1
 }
 
 _relink() {
+	[[ "$2" == "/dev/null" ]] && return 1
 	[[ "$relinkRelativeUb" == "true" ]] && export relinkRelativeUb=""
-	_relink_sequence "$@"
+	_relink_procedure "$@"
 }
 
 _relink_relative() {
-	export relinkRelativeUb="true"
-	_relink_sequence "$@"
+	export relinkRelativeUb=""
+	
+	[[ "$relinkRelativeUb" != "true" ]] && ln --help 2>/dev/null | grep '\-\-relative' > /dev/null 2>&1 && export relinkRelativeUb="true"
+	[[ "$relinkRelativeUb" != "true" ]] && ln 2>&1 | grep '\-\-relative' > /dev/null 2>&1 && export relinkRelativeUb="true"
+	[[ "$relinkRelativeUb" != "true" ]] && man ln 2>/dev/null | grep '\-\-relative' > /dev/null 2>&1 && export relinkRelativeUb="true"
+	
+	_relink_procedure "$@"
 	export relinkRelativeUb=""
 	unset relinkRelativeUb
 }
@@ -1567,6 +2066,13 @@ _testFindPort() {
 	! _wantGetDep ss
 	! _wantGetDep sockstat
 	
+	# WARNING: Cygwin port range detection not yet implemented.
+	if uname -a | grep -i cygwin > /dev/null 2>&1
+	then
+		! type nmap > /dev/null 2>&1 && echo "missing socket detection" && _stop 1
+		return 0
+	fi
+	
 	! type ss > /dev/null 2>&1 && ! type sockstat > /dev/null 2>&1 && echo "missing socket detection" && _stop 1
 	
 	local machineLowerPort=$(cat /proc/sys/net/ipv4/ip_local_port_range 2> /dev/null | cut -f1)
@@ -1602,6 +2108,12 @@ _checkPort_local() {
 	if type sockstat > /dev/null 2>&1
 	then
 		sockstat -46ln | grep '\.'"$1"' ' > /dev/null 2>&1
+		return $?
+	fi
+	
+	if uname -a | grep -i cygwin > /dev/null 2>&1
+	then
+		nmap --host-timeout 0.1 -Pn localhost -p "$1" 2> /dev/null | grep open > /dev/null 2>&1
 		return $?
 	fi
 	
@@ -1700,16 +2212,154 @@ _test_waitport() {
 	_getDep nmap
 }
 
-#Checks hostname for open port.
-#"$1" == hostname
-#"$2" == port
-_checkPort() {
-	if nmap -Pn "$1" -p "$2" 2> /dev/null | grep open > /dev/null 2>&1
+_showPort_ipv6() {
+	nmap -6 --host-timeout "$netTimeout" -Pn "$1" -p "$2" 2> /dev/null
+}
+
+_showPort_ipv4() {
+	nmap --host-timeout "$netTimeout" -Pn "$1" -p "$2" 2> /dev/null
+}
+
+_checkPort_ipv6() {
+	if _showPort_ipv6 "$@" | grep open > /dev/null 2>&1
 	then
 		return 0
 	fi
 	return 1
 }
+
+#Checks hostname for open port.
+#"$1" == hostname
+#"$2" == port
+_checkPort_ipv4() {
+	if _showPort_ipv4 "$@" | grep open > /dev/null 2>&1
+	then
+		return 0
+	fi
+	return 1
+}
+
+_checkPort_sequence() {
+	_start
+	
+	local currentEchoStatus
+	currentEchoStatus=$(stty --file=/dev/tty -g 2>/dev/null)
+	
+	local currentExitStatus
+	
+	if ( [[ "$1" == 'localhost' ]] || [[ "$1" == '::1' ]] || [[ "$1" == '127.0.0.1' ]] )
+	then
+		_checkPort_ipv4 "localhost" "$2"
+		return "$?"
+	fi
+	
+	#Lack of coproc support implies old system, which implies IPv4 only.
+	#if ! type coproc >/dev/null 2>&1
+	#then
+	#	_checkPort_ipv4 "$1" "$2"
+	#	return "$?"
+	#fi
+	
+	( ( _showPort_ipv4 "$1" "$2" ) 2> /dev/null > "$safeTmp"/_showPort_ipv4 & )
+	
+	( ( _showPort_ipv6 "$1" "$2" ) 2> /dev/null > "$safeTmp"/_showPort_ipv6 & )
+	
+	
+	local currentTimer
+	currentTimer=1
+	while [[ "$currentTimer" -le "$netTimeout" ]]
+	do
+		grep -m1 'open' "$safeTmp"/_showPort_ipv4 > /dev/null 2>&1 && _stop
+		grep -m1 'open' "$safeTmp"/_showPort_ipv6 > /dev/null 2>&1 && _stop
+		
+		! [[ $(jobs | wc -c) -gt '0' ]] && ! grep -m1 'open' "$safeTmp"/_showPort_ipv4 && grep -m1 'open' "$safeTmp"/_showPort_ipv6 > /dev/null 2>&1 && _stop 1
+		
+		let currentTimer="$currentTimer"+1
+		sleep 1
+	done
+	
+	
+	_stop 1
+}
+
+# DANGER: Unstable, abandoned. Reference only.
+# WARNING: Limited support for older systems.
+#https://unix.stackexchange.com/questions/86270/how-do-you-use-the-command-coproc-in-various-shells
+#http://wiki.bash-hackers.org/syntax/keywords/coproc
+#http://mywiki.wooledge.org/BashFAQ/024
+#[[ $COPROC_PID ]] && kill $COPROC_PID
+#coproc { bash -c '(sleep 9 ; echo test) &' ; bash -c 'echo test' ;  } ; grep -m1 test <&${COPROC[0]}
+#coproc { echo test ; echo x ; } ; sleep 1 ; grep -m1 test <&${COPROC[0]}
+_checkPort_sequence_coproc() {
+	local currentEchoStatus
+	currentEchoStatus=$(stty --file=/dev/tty -g 2>/dev/null)
+	
+	local currentExitStatus
+	
+	if ( [[ "$1" == 'localhost' ]] || [[ "$1" == '::1' ]] || [[ "$1" == '127.0.0.1' ]] )
+	then
+		_checkPort_ipv4 "localhost" "$2"
+		return "$?"
+	fi
+	
+	#Lack of coproc support implies old system, which implies IPv4 only.
+	if ! type coproc >/dev/null 2>&1
+	then
+		_checkPort_ipv4 "$1" "$2"
+		return "$?"
+	fi
+	
+	#coproc { sleep 30 ; echo foo ; sleep 30 ; echo bar; } ; grep -m1 foo <&${COPROC[0]}
+	#[[ $COPROC_PID ]] && kill $COPROC_PID ; coproc { ((sleep 1 ; echo test) &) ; echo x ; sleep 3 ; } ; sleep 0.1 ; grep -m1 test <&${COPROC[0]}
+	
+	[[ "$COPROC_PID" ]] && kill "$COPROC_PID" > /dev/null 2>&1
+	coproc {
+		( ( _showPort_ipv4 "$1" "$2" ) & )
+		
+		#[sleep] Lessens unlikely occurrence of interleaved text within "open" keyword.
+		#IPv6 delayed instead of IPv4 due to likelihood of additional delay by IPv6 tunneling.
+		#sleep 0.1
+		
+		# TODO: Better characterize problems with sleep.
+		# Workaround - sleep may disable 'stty echo', which may be irreversable within SSH proxy command.
+		#_timeout 0.1 cat < /dev/zero > /dev/null
+		if ! ping -c 2 -i 0.1 localhost > /dev/null 2>&1
+		then
+			ping -c 2 -i 1 localhost > /dev/null 2>&1
+		fi
+		
+		#[sleep] Lessens unlikely occurrence of interleaved text within "open" keyword.
+		#IPv6 delayed instead of IPv4 due to likelihood of additional delay by IPv6 tunneling.
+		( ( _showPort_ipv6 "$1" "$2" ) & )
+
+		#sleep 2
+		ping -c 2 -i 2 localhost > /dev/null 2>&1
+	}
+	grep -m1 open <&"${COPROC[0]}" > /dev/null 2>&1
+	currentExitStatus="$?"
+	
+	stty --file=/dev/tty "$currentEchoStatus" 2> /dev/null
+	
+	return "$currentExitStatus"
+}
+
+#Checks hostname for open port.
+#"$1" == hostname
+#"$2" == port
+_checkPort() {
+	#local currentEchoStatus
+	#currentEchoStatus=$(stty --file=/dev/tty -g 2>/dev/null)
+	
+	#if bash -c \""$scriptAbsoluteLocation"\"\ _checkPort_sequence\ \""$1"\"\ \""$2"\" > /dev/null 2>&1
+	if "$scriptAbsoluteLocation" _checkPort_sequence "$1" "$2" > /dev/null 2>&1
+	then
+		#stty --file=/dev/tty "$currentEchoStatus" 2> /dev/null
+		return 0
+	fi
+	#stty --file=/dev/tty "$currentEchoStatus" 2> /dev/null
+	return 1
+}
+
 
 #Waits a reasonable time interval for port to be open.
 #"$1" == hostname
@@ -1894,6 +2544,9 @@ _getUUID() {
 }
 alias getUUID=_getUUID
 
+#Reset prefixes.
+export tmpPrefix="" 
+
 #####Global variables.
 #Fixed unique identifier for ubiquitious bash created global resources, such as bootdisc images to be automaticaly mounted by guests. Should NEVER be changed.
 export ubiquitiousBashIDnano=uk4u
@@ -1994,6 +2647,10 @@ export bootTmp="$scriptLocal"
 
 #Specialized temporary directories.
 
+#MetaEngine/Engine Tmp Defaults (example, no production use)
+#export metaTmp="$scriptAbsoluteFolder""$tmpPrefix"/.m_"$sessionid"
+#export engineTmp="$scriptAbsoluteFolder""$tmpPrefix"/.e_"$sessionid"
+
 # WARNING: Only one user per (virtual) machine. Requires _prepare_abstract . Not default.
 # DANGER: Mandatory strict directory 8.3 compliance for this variable! Long subdirectory/filenames permitted thereafter.
 # DANGER: Permitting multi-user access to this directory may cause unexpected behavior, including inconsitent file ownership.
@@ -2018,6 +2675,8 @@ export daemonPidFile="$scriptLocal"/.bgpid
 export vncPasswdFile="$safeTmp"/.vncpasswd
 
 #Network Defaults
+[[ "$netTimeout" == "" ]] && export netTimeout=18
+
 export AUTOSSH_FIRST_POLL=45
 export AUTOSSH_POLL=45
 #export AUTOSSH_GATETIME=0
@@ -2095,9 +2754,43 @@ export globalBuildDir="$scriptLocal"/b
 export globalBuildFS="$globalBuildDir"/fs
 export globalBuildTmp="$globalBuildDir"/tmp
 
+_deps_metaengine() {
+# 	#_deps_notLean
+	_deps_dev
+	
+	export enUb_metaengine="true"
+} 
 
-#Reset prefixes.
-export tmpPrefix=""
+_compile_bash_metaengine() {
+	export includeScriptList
+	
+	#[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine"/undefined.sh )
+}
+
+_compile_bash_vars_metaengine() {
+	export includeScriptList
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/"/metaengine.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_diag.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_here.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_vars.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_parm.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/env"/metaengine_local.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/example"/example_metaengine_chain.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/example"/example_metaengine_object.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_chain.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_object.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_vars.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_divert.sh )
+	
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_buffer.sh )
+	[[ "$enUb_metaengine" == "true" ]] && includeScriptList+=( "metaengine/typical"/typical_metaengine_page.sh )
+}
 
 _findUbiquitous() {
 	export ubiquitiousLibDir="$scriptAbsoluteFolder"
@@ -2159,8 +2852,25 @@ _init_deps() {
 	export enUb_enUb_x220t=""
 	
 	export enUb_user=""
+	
+	export enUb_metaengine=""
+	
+	export enUb_stopwatch=""
 }
 
+_deps_dev() {
+	export enUb_dev="true"
+}
+
+_deps_dev_heavy() {
+	_deps_notLean
+	export enUb_dev_heavy="true"
+}
+
+_deps_mount() {
+	_deps_notLean
+	export enUb_mount="true"
+}
 
 _deps_machineinfo() {
 	export enUb_machineinfo="true"
@@ -2178,6 +2888,10 @@ _deps_notLean() {
 	_deps_git
 	_deps_bup
 	export enUb_notLean="true"
+}
+
+_deps_distro() {
+	export enUb_distro="true"
 }
 
 _deps_build() {
@@ -2225,35 +2939,44 @@ _deps_image() {
 	export enUb_image="true"
 }
 
-_deps_virt() {
+_deps_virt_thick() {
+	_deps_distro
 	_deps_build
 	_deps_notLean
-	_deps_machineinfo
 	_deps_image
+	export enUb_virt_thick="true"
+}
+
+_deps_virt() {
+	_deps_machineinfo
 	export enUb_virt="true"
 }
 
 _deps_chroot() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	export enUb_ChRoot="true"
 }
 
 _deps_qemu() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	export enUb_QEMU="true"
 }
 
 _deps_vbox() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	export enUb_vbox="true"
 }
 
 _deps_docker() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	export enUb_docker="true"
 }
 
@@ -2272,6 +2995,7 @@ _deps_dosbox() {
 _deps_msw() {
 	_deps_notLean
 	_deps_virt
+	_deps_virt_thick
 	_deps_qemu
 	_deps_vbox
 	_deps_wine
@@ -2285,7 +3009,8 @@ _deps_fakehome() {
 }
 
 _deps_abstractfs() {
-	_deps_notLean
+	_deps_git
+	_deps_bup
 	_deps_virt
 	export enUb_abstractfs="true"
 }
@@ -2319,6 +3044,21 @@ _deps_user() {
 	export enUb_user="true"
 }
 
+_deps_channel() {
+	export enUb_channel="true"
+}
+
+_deps_stopwatch() {
+	export enUb_stopwatch="true"
+}
+
+#placeholder, define under "metaengine/build"
+#_deps_metaengine() {
+#	_deps_notLean
+#	
+#	export enUb_metaengine="true"
+#}
+
 
 _generate_bash() {
 	
@@ -2341,7 +3081,9 @@ _generate_bash() {
 	
 	_compile_bash_vars_global
 	
+	_compile_bash_extension
 	_compile_bash_selfHost
+	_compile_bash_selfHost_prog
 	
 	_compile_bash_overrides
 	
@@ -2404,23 +3146,60 @@ _compile_bash_deps() {
 		_deps_proxy
 		_deps_proxy_special
 		
+		_deps_channel
+		
 		_deps_git
 		_deps_bup
 		
 		_deps_command
 		_deps_synergy
 		
+		_deps_stopwatch
+		
+		return 0
+	fi
+	
+	if [[ "$1" == "processor" ]]
+	then
+		
+		_deps_dev
+		
+		_deps_channel
+		
+		_deps_metaengine
+		
+		return 0
+	fi
+	
+	if [[ "$1" == "abstract" ]]
+	then
+		_deps_dev
+		
+		_deps_channel
+		
+		_deps_metaengine
+		
+		_deps_abstractfs
+		
 		return 0
 	fi
 	
 	if [[ "$1" == "core" ]]
 	then
+		_deps_dev_heavy
+		_deps_dev
+		
+		_deps_mount
+		
 		_deps_notLean
 		_deps_os_x11
 		
 		_deps_x11
 		_deps_image
+		
 		_deps_virt
+		_deps_virt_thick
+		
 		_deps_chroot
 		_deps_qemu
 		_deps_vbox
@@ -2431,8 +3210,14 @@ _compile_bash_deps() {
 		_deps_fakehome
 		_deps_abstractfs
 		
+		_deps_channel
+		
+		_deps_metaengine
+		
 		_deps_git
 		_deps_bup
+		
+		_deps_distro
 		
 		#_deps_blockchain
 		
@@ -2457,12 +3242,20 @@ _compile_bash_deps() {
 	
 	if [[ "$1" == "" ]] || [[ "$1" == "ubiquitous_bash" ]] || [[ "$1" == "ubiquitous_bash.sh" ]] || [[ "$1" == "complete" ]]
 	then
+		_deps_dev_heavy
+		_deps_dev
+		
+		_deps_mount
+		
 		_deps_notLean
 		_deps_os_x11
 		
 		_deps_x11
 		_deps_image
+		
 		_deps_virt
+		_deps_virt_thick
+		
 		_deps_chroot
 		_deps_qemu
 		_deps_vbox
@@ -2473,8 +3266,14 @@ _compile_bash_deps() {
 		_deps_fakehome
 		_deps_abstractfs
 		
+		_deps_channel
+		
+		_deps_metaengine
+		
 		_deps_git
 		_deps_bup
+		
+		_deps_distro
 		
 		_deps_blockchain
 		
@@ -2518,6 +3317,8 @@ _compile_bash_header() {
 	
 	includeScriptList+=( "os/override"/override.sh )
 	includeScriptList+=( "os/override"/override_prog.sh )
+	
+	includeScriptList+=( "os/override"/override_cygwin.sh )
 }
 
 _compile_bash_header_program() {
@@ -2533,12 +3334,16 @@ _compile_bash_essential_utilities() {
 	includeScriptList+=( "labels"/utilitiesLabel.sh )
 	includeScriptList+=( "generic/filesystem"/absolutepaths.sh )
 	includeScriptList+=( "generic/filesystem"/safedelete.sh )
+	includeScriptList+=( "generic/filesystem"/allLogic.sh )
 	includeScriptList+=( "generic/process"/timeout.sh )
 	includeScriptList+=( "generic/process"/terminate.sh )
+	includeScriptList+=( "generic"/condition.sh )
 	includeScriptList+=( "generic"/uid.sh )
 	includeScriptList+=( "generic/filesystem/permissions"/checkpermissions.sh )
 	includeScriptList+=( "generic"/findInfrastructure.sh )
 	includeScriptList+=( "generic"/gather.sh )
+	
+	includeScriptList+=( "generic/process"/priority.sh )
 	
 	includeScriptList+=( "generic/filesystem"/internal.sh )
 	
@@ -2547,6 +3352,7 @@ _compile_bash_essential_utilities() {
 	includeScriptList+=( "generic"/config/mustcarry.sh )
 	
 	[[ "$enUb_buildBash" == "true" ]] && includeScriptList+=( "build/bash"/include_bash.sh )
+	[[ "$enUb_buildBash" == "true" ]] && includeScriptList+=( "build/bash"/include_bash_prog.sh )
 }
 
 _compile_bash_utilities() {
@@ -2561,11 +3367,13 @@ _compile_bash_utilities() {
 	
 	includeScriptList+=( "generic/filesystem"/relink.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/bindmountmanager.sh )
+	[[ "$enUb_mount" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/bindmountmanager.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/waitumount.sh )
+	[[ "$enUb_mount" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/waitumount.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/mountchecks.sh )
+	[[ "$enUb_mount" == "true" ]] && includeScriptList+=( "generic/filesystem/mounts"/mountchecks.sh )
+	
+	[[ "$enUb_channel" == "true" ]] && includeScriptList+=( "generic/process/"channel.sh )
 	
 	includeScriptList+=( "generic/process"/waitforprocess.sh )
 	
@@ -2588,6 +3396,10 @@ _compile_bash_utilities() {
 	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/ssh"/ssh.sh )
 	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/ssh"/autossh.sh )
 	
+	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/vnc"/vnc_vncserver_operations.sh )
+	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/vnc"/vnc_vncviewer_operations.sh )
+	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/vnc"/vnc_x11vnc_operations.sh )
+	
 	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/proxyrouter"/here_proxyrouter.sh )
 	[[ "$enUb_proxy" == "true" ]] && includeScriptList+=( "generic/net/proxy/proxyrouter"/proxyrouter.sh )
 	
@@ -2607,22 +3419,24 @@ _compile_bash_utilities() {
 	includeScriptList+=( "special"/mustberoot.sh )
 	includeScriptList+=( "special"/mustgetsudo.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "special/gosu"/gosu.sh )
-	
 	includeScriptList+=( "special"/uuid.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "instrumentation"/bashdb/bashdb.sh )
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "instrumentation"/profiling/stopwatch.sh )
+	[[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "instrumentation"/bashdb/bashdb.sh )
+	([[ "$enUb_notLean" == "true" ]] || [[ "$enUb_stopwatch" == "true" ]]) && includeScriptList+=( "instrumentation"/profiling/stopwatch.sh )
 }
 
 _compile_bash_utilities_virtualization() {
 	export includeScriptList
 	
+	# ATTENTION: Although the only known requirement for gosu is virtualization, it may be necessary wherever sudo is not sufficient to drop privileges.
+	[[ "$enUb_virt_thick" == "true" ]] && includeScriptList+=( "special/gosu"/gosu.sh )
+	
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/virtenv.sh )
 	
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/findInfrastructure_virt.sh )
 	
-	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/osTranslation.sh )
+	# Any script managing MSW from UNIX may need basic file parameter translation without needing complete remapping. Example: "_vncviewer_operations" .
+	( [[ "$enUb_virt" == "true" ]] || [[ "$enUb_proxy" == "true" ]] ) && includeScriptList+=( "virtualization"/osTranslation.sh )
 	[[ "$enUb_virt" == "true" ]] && includeScriptList+=( "virtualization"/localPathTranslation.sh )
 	
 	[[ "$enUb_abstractfs" == "true" ]] && includeScriptList+=( "virtualization/abstractfs"/abstractfs.sh )
@@ -2681,19 +3495,19 @@ _compile_bash_shortcuts() {
 	
 	includeScriptList+=( "shortcuts/prompt"/visualPrompt.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev"/devsearch.sh )
+	[[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "shortcuts/dev"/devsearch.sh )
 	
-	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devemacs.sh )
-	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devatom.sh )
-	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_abstractfs" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/deveclipse.sh )
+	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devemacs.sh )
+	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/devatom.sh )
+	[[ "$enUb_fakehome" == "true" ]] && [[ "$enUb_abstractfs" == "true" ]] && [[ "$enUb_dev_heavy" == "true" ]] && includeScriptList+=( "shortcuts/dev/app"/deveclipse.sh )
 	
 	includeScriptList+=( "shortcuts/dev/query"/devquery.sh )
 	
-	includeScriptList+=( "shortcuts/dev/scope"/devscope.sh )
-	includeScriptList+=( "shortcuts/dev/scope"/devscope_here.sh )
+	[[ "$enUb_dev" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope.sh )
+	[[ "$enUb_dev" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope_here.sh )
 	
 	# WARNING: Some apps may have specific dependencies (eg. fakeHome, abstractfs, eclipse, atom).
-	includeScriptList+=( "shortcuts/dev/scope"/devscope_app.sh )
+	[[ "$enUb_dev" == "true" ]] && includeScriptList+=( "shortcuts/dev/scope"/devscope_app.sh )
 	
 	[[ "$enUb_git" == "true" ]] && includeScriptList+=( "shortcuts/git"/git.sh )
 	[[ "$enUb_git" == "true" ]] && includeScriptList+=( "shortcuts/git"/gitBare.sh )
@@ -2703,12 +3517,12 @@ _compile_bash_shortcuts() {
 	[[ "$enUb_image" == "true" ]] && includeScriptList+=( "shortcuts/mkboot"/here_mkboot.sh )
 	[[ "$enUb_image" == "true" ]] && includeScriptList+=( "shortcuts/mkboot"/mkboot.sh )
 	
-	[[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "shortcuts/distro"/distro.sh )
+	[[ "$enUb_notLean" == "true" ]] && [[ "$enUb_distro" == "true" ]] && includeScriptList+=( "shortcuts/distro"/distro.sh )
 	
-	[[ "$enUb_QEMU" == "true" ]] && includeScriptList+=( "shortcuts/distro/debian"/createDebian.sh )
-	[[ "$enUb_image" == "true" ]] && includeScriptList+=( "shortcuts/distro/raspbian"/createRaspbian.sh )
+	[[ "$enUb_QEMU" == "true" ]] && [[ "$enUb_distro" == "true" ]] && includeScriptList+=( "shortcuts/distro/debian"/createDebian.sh )
+	[[ "$enUb_image" == "true" ]] && [[ "$enUb_distro" == "true" ]] && includeScriptList+=( "shortcuts/distro/raspbian"/createRaspbian.sh )
 	
-	[[ "$enUb_msw" == "true" ]] && includeScriptList+=( "shortcuts/distro/msw"/msw.sh )
+	[[ "$enUb_msw" == "true" ]] && [[ "$enUb_distro" == "true" ]] && includeScriptList+=( "shortcuts/distro/msw"/msw.sh )
 	
 	[[ "$enUb_x11" == "true" ]] && includeScriptList+=( "shortcuts/x11"/testx11.sh )
 	[[ "$enUb_x11" == "true" ]] && includeScriptList+=( "shortcuts/x11"/xinput.sh )
@@ -2735,6 +3549,12 @@ _compile_bash_shortcuts_setup() {
 	
 	includeScriptList+=( "shortcuts"/setupUbiquitous_here.sh )
 	includeScriptList+=( "shortcuts"/setupUbiquitous.sh )
+}
+
+_compile_bash_shortcuts_os() {
+	export includeScriptList
+	
+	includeScriptList+=( "shortcuts/os/unix/nice"/renice.sh )
 }
 
 _compile_bash_bundled() {
@@ -2773,6 +3593,8 @@ _compile_bash_vars_basic() {
 
 _compile_bash_vars_global() {
 	export includeScriptList
+	
+	includeScriptList+=( "structure"/resetvars.sh )
 	
 	#Optional, rarely used, intended for overload.
 	includeScriptList+=( "structure"/prefixvars.sh )
@@ -2822,7 +3644,9 @@ _compile_bash_buildin() {
 	export includeScriptList
 	
 	[[ "$enUb_build" == "true" ]] && includeScriptList+=( "generic/hello"/hello.sh )
-	[[ "$enUb_build" == "true" ]] && [[ "$enUb_notLean" == "true" ]] && includeScriptList+=( "generic/process"/idle.sh )
+	
+	# ATTENTION: Running while X11 session is idle is a common requirement for a daemon.
+	[[ "$enUb_build" == "true" ]] && [[ "$enUb_x11" == "true" ]] && includeScriptList+=( "generic/process"/idle.sh )
 	
 	[[ "$enUb_build" == "true" ]] && includeScriptList+=( "structure"/build.sh )
 }
@@ -2858,7 +3682,7 @@ _compile_bash_config() {
 	
 	
 	#####Hardcoded
-	includeScriptList+=( netvars.sh )
+	includeScriptList+=( "_config"/netvars.sh )
 }
 
 _compile_bash_selfHost() {
@@ -2889,6 +3713,23 @@ _compile_bash_entry() {
 	
 	includeScriptList+=( "structure"/entry.sh )
 }
+
+_compile_bash_extension() {
+	export includeScriptList
+	
+	[[ "$enUb_buildBashUbiquitous" == "true" ]] && includeScriptList+=( "metaengine/build"/deps_meta.sh )
+	[[ "$enUb_buildBashUbiquitous" == "true" ]] && includeScriptList+=( "metaengine/build"/compile_meta.sh )
+}
+
+#placehoder, define under "metaengine/build"
+#_compile_bash_metaengine() {
+#	true
+#}
+
+#placeholder, define under "metaengine/build"
+#_compile_bash_vars_metaengine() {
+#	true
+#}
 
 #Ubiquitous Bash compile script. Override with "ops", "_config", or "_prog" directives through "compile_bash_prog.sh" to compile other work products through similar scripting.
 # "$1" == configuration
@@ -2932,6 +3773,8 @@ _compile_bash() {
 	_compile_bash_shortcuts_setup
 	_compile_bash_shortcuts_setup_prog
 	
+	_compile_bash_shortcuts_os
+	
 	_compile_bash_bundled
 	_compile_bash_bundled_prog
 	
@@ -2940,6 +3783,8 @@ _compile_bash() {
 	_compile_bash_user
 	
 	_compile_bash_hardware
+	
+	_tryExec _compile_bash_metaengine
 	
 	_compile_bash_vars_basic
 	_compile_bash_vars_basic_prog
@@ -2955,6 +3800,8 @@ _compile_bash() {
 	_compile_bash_vars_virtualization_prog
 	_compile_bash_vars_bundled
 	_compile_bash_vars_bundled_prog
+	
+	_tryExec _compile_bash_vars_metaengine
 	
 	_compile_bash_buildin
 	_compile_bash_buildin_prog
@@ -2973,6 +3820,7 @@ _compile_bash() {
 	_compile_bash_config
 	_compile_bash_config_prog
 	
+	_compile_bash_extension
 	_compile_bash_selfHost
 	_compile_bash_selfHost_prog
 	
@@ -3177,7 +4025,18 @@ _compile_bash_entry_prog() {
 #May allow traps to work properly in simple scripts which do not include more comprehensive "_stop" or "_stop_emergency" implementations.
 if ! type _stop > /dev/null 2>&1
 then
+	# ATTENTION: Consider carefully, override with "ops".
+	# WARNING: Unfortunate, but apparently necessary, workaround for script termintaing while "sleep" or similar run under background.
+	_stop_stty_echo() {
+		#true
+		
+		stty echo --file=/dev/tty > /dev/null 2>&1
+		
+		#[[ "$ubFoundEchoStatus" != "" ]] && stty --file=/dev/tty "$ubFoundEchoStatus" 2> /dev/null
+	}
 	_stop() {
+		_stop_stty_echo
+		
 		if [[ "$1" != "" ]]
 		then
 			exit "$1"
@@ -3211,17 +4070,31 @@ fi
 #fi
 
 #Override functions with external definitions from a separate file if available.
+# CAUTION: Recommend only "ops" or "ops.sh" . Using both can cause confusion.
+# ATTENTION: Recommend "ops.sh" only when unusually long. Specifically intended for "CoreAutoSSH" .
 if [[ -e "$objectDir"/ops ]]
 then
 	. "$objectDir"/ops
+fi
+if [[ -e "$objectDir"/ops.sh ]]
+then
+	. "$objectDir"/ops.sh
 fi
 if [[ -e "$scriptLocal"/ops ]]
 then
 	. "$scriptLocal"/ops
 fi
+if [[ -e "$scriptLocal"/ops.sh ]]
+then
+	. "$scriptLocal"/ops.sh
+fi
 if [[ -e "$scriptLocal"/ssh/ops ]]
 then
 	. "$scriptLocal"/ssh/ops
+fi
+if [[ -e "$scriptLocal"/ssh/ops.sh ]]
+then
+	. "$scriptLocal"/ssh/ops.sh
 fi
 
 #WILL BE OVERWRITTEN FREQUENTLY.
