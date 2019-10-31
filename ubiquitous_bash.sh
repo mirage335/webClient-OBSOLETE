@@ -2853,8 +2853,8 @@ Host *-$netName*
 	UserKnownHostsFile "$sshLocalSSH/known_hosts"
 	IdentityFile "$sshLocalSSH/id_rsa"
 	
-	Cipher aes256-gcm@openssh.com
-	Ciphers aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,arcfour256,arcfour128,aes128-gcm@openssh.com,chacha20-poly1305@openssh.com,aes128-cbc,3des-cbc,blowfish-cbc,cast128-cbc,aes192-cbc,aes256-cbc,arcfour
+	#Cipher aes256-gcm@openssh.com
+	#Ciphers aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,arcfour256,arcfour128,aes128-gcm@openssh.com,chacha20-poly1305@openssh.com,aes128-cbc,3des-cbc,blowfish-cbc,cast128-cbc,aes192-cbc,aes256-cbc,arcfour
 
 Host machine-$netName
 	User user
@@ -5999,6 +5999,12 @@ _fetchDep_debian() {
 		return
 	fi
 	
+	if [[ -e /etc/debian_version ]] && cat /etc/debian_version | head -c 2 | grep 10 > /dev/null 2>&1
+	then
+		_fetchDep_debianStretch "$@"
+		return
+	fi
+	
 	return 1
 }
 
@@ -8546,6 +8552,7 @@ _umountChRoot_directory_raspbian() {
 	
 }
 
+# ATTENTION: Mounts image containing only root partiton.
 _mountChRoot_image_x64() {
 	_mustGetSudo
 	
@@ -8559,20 +8566,33 @@ _mountChRoot_image_x64() {
 	[[ -e "$scriptLocal"/vm-x64.img ]] && chrootvmimage="$scriptLocal"/vm-x64.img
 	[[ -e "$scriptLocal"/vm.img ]] && chrootvmimage="$scriptLocal"/vm.img
 	
-	sudo -n losetup -f -P --show "$chrootvmimage" > "$safeTmp"/imagedev 2> /dev/null || _stop 1
-	sudo -n partprobe > /dev/null 2>&1
+	[[ "$ubVirtImageOverride" != '' ]] && chrootvmimage="$ubVirtImageOverride"
 	
-	cp -n "$safeTmp"/imagedev "$scriptLocal"/imagedev > /dev/null 2>&1 || _stop 1
 	
-	local chrootimagedev
-	chrootimagedev=$(cat "$safeTmp"/imagedev)
+	if ! _detect_deviceAsVirtImage
+	then
+		sudo -n losetup -f -P --show "$chrootvmimage" > "$safeTmp"/imagedev 2> /dev/null || _stop 1
+		sudo -n partprobe > /dev/null 2>&1
+		
+		cp -n "$safeTmp"/imagedev "$scriptLocal"/imagedev > /dev/null 2>&1 || _stop 1
+		
+		local chrootimagedev
+		chrootimagedev=$(cat "$safeTmp"/imagedev)
+		
+		local chrootimagepart
+		#chrootimagepart="$chrootimagedev"p2
+		chrootimagepart="$chrootimagedev"p1
+		
+	fi
 	
-	local chrootimagepart
-	#chrootimagepart="$chrootimagedev"p2
-	chrootimagepart="$chrootimagedev"p1
+	# DANGER: REQUIRES image including only root partition!
+	[[ "$ubVirtImageIsRootPartition" == 'true' ]] && chrootimagepart="$chrootimagedev"
 	
 	local chrootloopdevfs
 	chrootloopdevfs=$(eval $(sudo -n blkid "$chrootimagepart" | awk ' { print $3 } '); echo $TYPE)
+	
+	# DANGER: REQUIRES image including only root partition!
+	[[ "$ubVirtImageIsRootPartition" == 'true' ]] && chrootloopdevfs=$(eval $(sudo -n blkid "$chrootimagepart" | awk ' { print $4 } '); echo $TYPE)
 	
 	! [[ "$chrootloopdevfs" == "ext4" ]] && _stop 1
 	
@@ -8652,10 +8672,10 @@ _umountChRoot_image() {
 	local chrootimagedev
 	chrootimagedev=$(cat "$scriptLocal"/imagedev)
 	
-	sudo -n losetup -d "$chrootimagedev" > /dev/null 2>&1 || return 1
+	! _detect_deviceAsVirtImage && ! sudo -n losetup -d "$chrootimagedev" > /dev/null 2>&1 && return 1
 	sudo -n partprobe > /dev/null 2>&1
 	
-	rm -f "$scriptLocal"/imagedev || return 1
+	! _detect_deviceAsVirtImage && ! rm -f "$scriptLocal"/imagedev && return 1
 	
 	rm -f "$lock_quicktmp" > /dev/null 2>&1
 	
@@ -14184,7 +14204,8 @@ _push_synergy() {
 }
 
 _test_x220() {
-	_getDep xlock
+	#_getDep xlock
+	_getDep loginctl
 	
 	_getDep xsetwacom
 }
@@ -14234,13 +14255,15 @@ _x220_enableTouch() {
 	_messagePlain_nominal "Enabling Touch."
 	
 	#On enable, momentarily block input events. Otherwise, all touch previous touch events will be processed.
-	xlock -mode flag -message "Enabling touch..." &
+	#xlock -mode flag -message "Enabling touch..." &
+	loginctl lock-session
 	sleep 2
 	
 	_x220_setTouch 1
 	
 	sleep 2
-	kill -KILL $!
+	#kill -KILL $!
+	loginctl unlock-session
 }
 
 _x220_disableTouch() {
@@ -14265,8 +14288,11 @@ _x220_toggleTouch() {
 #Workaround. Display configuration changes may inappropriately remap pen/eraser/touch input off matching internal screen.
 _x220_wacomLVDS() {
 	xsetwacom --set 'Wacom ISDv4 E6 Pen stylus'  "MapToOutput" LVDS1
+	xsetwacom --set 'Wacom ISDv4 E6 Pen stylus'  "MapToOutput" LVDS-1
 	xsetwacom --set 'Wacom ISDv4 E6 Pen eraser'  "MapToOutput" LVDS1
+	xsetwacom --set 'Wacom ISDv4 E6 Pen eraser'  "MapToOutput" LVDS-1
 	xsetwacom --set 'Wacom ISDv4 E6 Finger touch'  "MapToOutput" LVDS1
+	xsetwacom --set 'Wacom ISDv4 E6 Finger touch'  "MapToOutput" LVDS-1
 }
 
 _x220_setWacomRotation() {
@@ -14283,6 +14309,7 @@ _x220_tablet_N000() {
 	_prepare_x220
 	
 	xrandr --output LVDS1 --rotate normal
+	xrandr --output LVDS-1 --rotate normal
 	_x220_setWacomRotation none
 	echo "N000" > "$ub_hardware_x220_dir"/screenRotationState
 	
@@ -14298,6 +14325,7 @@ _x220_tablet_E090() {
 	_prepare_x220
 	
 	xrandr --output LVDS1 --rotate right
+	xrandr --output LVDS-1 --rotate right
 	_x220_setWacomRotation cw
 	echo "E090" > "$ub_hardware_x220_dir"/screenRotationState
 	
@@ -14313,6 +14341,7 @@ _x220_tablet_S180() {
 	_prepare_x220
 	
 	xrandr --output LVDS1 --rotate inverted
+	xrandr --output LVDS-1 --rotate inverted
 	_x220_setWacomRotation half
 	echo "S180" > "$ub_hardware_x220_dir"/screenRotationState
 	
@@ -14354,12 +14383,18 @@ _x220_tablet_flip() {
 
 _x220_vgaSmall() {
 	xrandr --addmode VGA1 1366x768
+	xrandr --addmode VGA-1 1366x768
 	xrandr --output VGA1 --same-as LVDS1 --mode 1366x768
+	xrandr --output VGA-1 --same-as LVDS-1 --mode 1366x768
 	xrandr --output LVDS1 --primary --auto
+	xrandr --output LVDS-1 --primary --auto
 	
 	xrandr --addmode VGA1 1366x768
+	xrandr --addmode VGA-1 1366x768
 	xrandr --output VGA1 --same-as LVDS1 --mode 1366x768
+	xrandr --output VGA-1 --same-as LVDS-1 --mode 1366x768
 	xrandr --output LVDS1 --primary --auto
+	xrandr --output LVDS-1 --primary --auto
 	
 	_x220_tablet_N000
 }
@@ -14367,24 +14402,36 @@ _x220_vgaSmall() {
 #Most commonly used mode. Recommend binding to key or quicklaunch.
 _x220_vgaRightOf() {
 	xrandr --output LVDS1 --primary --mode 1366x768
+	xrandr --output LVDS-1 --primary --mode 1366x768
 	xrandr --output VGA1 --right-of LVDS1 --auto
+	xrandr --output VGA-1 --right-of LVDS-1 --auto
 	xrandr --output LVDS1 --primary --mode 1366x768
+	xrandr --output LVDS-1 --primary --mode 1366x768
 	
 	xrandr --output LVDS1 --primary --mode 1366x768
+	xrandr --output LVDS-1 --primary --mode 1366x768
 	xrandr --output VGA1 --right-of LVDS1 --auto
+	xrandr --output VGA-1 --right-of LVDS-1 --auto
 	xrandr --output LVDS1 --primary --mode 1366x768
+	xrandr --output LVDS-1 --primary --mode 1366x768
 	
 	_x220_tablet_N000
 }
 
 _x220_vgaTablet() {
 	xrandr --output LVDS1 --primary --mode 1366x768
+	xrandr --output LVDS-1 --primary --mode 1366x768
 	xrandr --output VGA1 --right-of LVDS1 --auto
+	xrandr --output VGA-1 --right-of LVDS-1 --auto
 	xrandr --output LVDS1 --primary --mode 1366x768
+	xrandr --output LVDS-1 --primary --mode 1366x768
 	
 	xrandr --output LVDS1 --primary --mode 1366x768
+	xrandr --output LVDS-1 --primary --mode 1366x768
 	xrandr --output VGA1 --right-of LVDS1 --auto
+	xrandr --output VGA-1 --right-of LVDS-1 --auto
 	xrandr --output LVDS1 --primary --mode 1366x768
+	xrandr --output LVDS-1 --primary --mode 1366x768
 	
 	_x220_tablet_S180
 }
@@ -18235,36 +18282,57 @@ _flag_localURL() {
 }
 
 _firefox_command() {
+	local currentArgs
+	
+	
+	local currentArg
+	local currentResult
+	local currentProcessedArgs=()
+	
+	local currentFlag_includesProfileDirective
+	
+	for currentArg in "$@"
+	do
+		if [[ "$currentArg" == '-P' ]] || [[ "$currentArg" == '--profile' ]] || [[ "$currentArg" == '--ProfileManager' ]]
+		then
+			currentFlag_includesProfileDirective='true'
+			_messagePlain_probe 'detected: profile directive'
+		fi
+	done
+	if [[ "$currentFlag_includesProfileDirective" != 'true' ]]
+	then
+		currentProcessedArgs+=( '-P' )
+		currentProcessedArgs+=( 'default' )
+	fi
+	#http://stackoverflow.com/questions/15420790/create-array-in-loop-from-number-of-arguments
+	for currentArg in "$@"
+	do
+		currentResult="$currentArg"
+		currentProcessedArgs+=("$currentResult")
+	done
+	
+	
+	
+	
 	if [[ -e "$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox ]]
 	then
 		_messageNormal 'Launch: _local/firefox'
-		_messagePlain_probe "$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox "$@"
-		"$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox "$@"
+		_messagePlain_probe "$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox "${currentProcessedArgs[@]}"
+		"$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox "${currentProcessedArgs[@]}"
 		return 0
 	fi
 	
 	local firefoxVersion
 	if firefoxVersion=$(firefox --version | sed 's/Mozilla\ Firefox\ //g' | cut -d\. -f1)
 	#if which 'firefox'
-	#if _wantDep 'firefox'efox/active-update.xml
-        modified:   _local/setups/firefox/firefox/application.ini
-        modified:   _local/setups/firefox/firefox/browser/blocklist.xml
-        deleted:    _local/setups/firefox/firefox/browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/activity-stream@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/aushelper@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/firefox@getpocket.com.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/followonsearch@mozilla.com.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/formautofill@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/onboarding@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/screenshots@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/webcompat@mozilla.
+	#if _wantDep 'firefox'
 	#if false
 	then
 		if [[ "$firefoxVersion" -ge "59" ]]
 		then
 			_messageNormal 'Launch: firefox'
-			_messagePlain_probe firefox "$@"
-			firefox "$@"
+			_messagePlain_probe firefox "${currentProcessedArgs[@]}"
+			firefox "${currentProcessedArgs[@]}"
 			return 0
 		fi
 	fi
@@ -18274,8 +18342,8 @@ _firefox_command() {
 	if false
 	then
 		_messageNormal 'Launch: firefox_quantum'
-		_messagePlain_probe firefox_quantum "$@"
-		firefox_quantum "$@"
+		_messagePlain_probe firefox_quantum "${currentProcessedArgs[@]}"
+		firefox_quantum "${currentProcessedArgs[@]}"
 		return 0
 	fi
 	

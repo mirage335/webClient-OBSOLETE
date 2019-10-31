@@ -19,36 +19,57 @@ _flag_localURL() {
 }
 
 _firefox_command() {
+	local currentArgs
+	
+	
+	local currentArg
+	local currentResult
+	local currentProcessedArgs=()
+	
+	local currentFlag_includesProfileDirective
+	
+	for currentArg in "$@"
+	do
+		if [[ "$currentArg" == '-P' ]] || [[ "$currentArg" == '--profile' ]] || [[ "$currentArg" == '--ProfileManager' ]]
+		then
+			currentFlag_includesProfileDirective='true'
+			_messagePlain_probe 'detected: profile directive'
+		fi
+	done
+	if [[ "$currentFlag_includesProfileDirective" != 'true' ]]
+	then
+		currentProcessedArgs+=( '-P' )
+		currentProcessedArgs+=( 'default' )
+	fi
+	#http://stackoverflow.com/questions/15420790/create-array-in-loop-from-number-of-arguments
+	for currentArg in "$@"
+	do
+		currentResult="$currentArg"
+		currentProcessedArgs+=("$currentResult")
+	done
+	
+	
+	
+	
 	if [[ -e "$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox ]]
 	then
 		_messageNormal 'Launch: _local/firefox'
-		_messagePlain_probe "$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox "$@"
-		"$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox "$@"
+		_messagePlain_probe "$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox "${currentProcessedArgs[@]}"
+		"$scriptAbsoluteFolder"/_local/setups/firefox/firefox/firefox "${currentProcessedArgs[@]}"
 		return 0
 	fi
 	
 	local firefoxVersion
 	if firefoxVersion=$(firefox --version | sed 's/Mozilla\ Firefox\ //g' | cut -d\. -f1)
 	#if which 'firefox'
-	#if _wantDep 'firefox'efox/active-update.xml
-        modified:   _local/setups/firefox/firefox/application.ini
-        modified:   _local/setups/firefox/firefox/browser/blocklist.xml
-        deleted:    _local/setups/firefox/firefox/browser/extensions/{972ce4c6-7e08-4474-a285-3208198ce6fd}.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/activity-stream@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/aushelper@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/firefox@getpocket.com.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/followonsearch@mozilla.com.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/formautofill@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/onboarding@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/screenshots@mozilla.org.xpi
-        modified:   _local/setups/firefox/firefox/browser/features/webcompat@mozilla.
+	#if _wantDep 'firefox'
 	#if false
 	then
 		if [[ "$firefoxVersion" -ge "59" ]]
 		then
 			_messageNormal 'Launch: firefox'
-			_messagePlain_probe firefox "$@"
-			firefox "$@"
+			_messagePlain_probe firefox "${currentProcessedArgs[@]}"
+			firefox "${currentProcessedArgs[@]}"
 			return 0
 		fi
 	fi
@@ -58,8 +79,8 @@ _firefox_command() {
 	if false
 	then
 		_messageNormal 'Launch: firefox_quantum'
-		_messagePlain_probe firefox_quantum "$@"
-		firefox_quantum "$@"
+		_messagePlain_probe firefox_quantum "${currentProcessedArgs[@]}"
+		firefox_quantum "${currentProcessedArgs[@]}"
 		return 0
 	fi
 	
