@@ -18,6 +18,10 @@ Remove "_local/h" ".gitignore" exlcusion to track web browser profile under git 
 
 FireFox will not report "profile in use" errors when run under non-persistent/user modes, which use temporary directories. However, FireFox still cannot be run multiple times under persistent/edit modes if any other FireFox profile is active on the desktop.
 
+FireFox ESR is required to support TiddlyFox extension for editing TiddlyWiki files.
+
+Infrequently edited FireFox profiles will cause a "Refresh Firefox" prompt. Add boolean 'browser.disableResetPrompt=true' under 'about:config' to disable.
+
 # Design
 Ubiquitous Bash FakeHome virtualization redirects the apparent home directory as seen by FireFox and Chromium.
 
