@@ -22,6 +22,18 @@ FireFox ESR is required to support TiddlyFox extension for editing TiddlyWiki fi
 
 Infrequently edited FireFox profiles will cause a "Refresh Firefox" prompt. Add boolean 'browser.disableResetPrompt=true' under 'about:config' to disable.
 
+# Prerequsites
+
+## Firefox Binaries
+
+Download and install firefox binary archives, and extract to '_local/setups' directories.
+
+* _local/setups/firefox/firefox-0.0.0.tar.bz2
+* _local/setups/firefox/firefox/firefox
+
+* _local/setups/firefox-esr/firefox-0.0.0esr.tar.bz2
+* _local/setups/firefox-esr/firefox/firefox
+
 # Design
 Ubiquitous Bash FakeHome virtualization redirects the apparent home directory as seen by FireFox and Chromium.
 
