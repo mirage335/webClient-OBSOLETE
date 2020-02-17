@@ -175,7 +175,7 @@ fi
 
 if ! type qemu-armeb-static > /dev/null 2>&1 && type qemu-armeb > /dev/null 2>&1
 then
-	qemu-arm-static() {
+	qemu-armeb-static() {
 		qemu-armeb "$@"
 	}
 fi
@@ -11375,10 +11375,12 @@ _findFunction() {
 }
 
 _test_devemacs() {
-	_getDep emacs
+	_wantGetDep emacs
 	
 	local emacsDetectedVersion=$(emacs --version | head -n 1 | cut -f 3 -d\ | cut -d\. -f1)
-	! [[ "$emacsDetectedVersion" -ge "24" ]] && echo emacs too old && _stop 1
+	! [[ "$emacsDetectedVersion" -ge "24" ]] && echo emacs too old && return 1
+	
+	return 0
 }
 
 _set_emacsFakeHomeSource() {
@@ -11503,12 +11505,14 @@ _ubdb() {
 }
 
 _test_devatom() {
-	_getDep rsync
+	_wantGetDep rsync
 	
-	_getDep atom
+	_wantGetDep atom
 	
 	#local atomDetectedVersion=$(atom --version | head -n 1 | cut -f 2- -d \: | cut -f 2- -d \  | cut -f 2 -d \. )
-	#! [[ "$atomDetectedVersion" -ge "27" ]] && echo atom too old && _stop 1
+	#! [[ "$atomDetectedVersion" -ge "27" ]] && echo atom too old && return 1
+	
+	return 0
 }
 
 _install_fakeHome_atom() {	
@@ -11624,7 +11628,7 @@ _ubide() {
 }
 
 _test_deveclipse() {
-	_getDep eclipse
+	_wantGetDep eclipse
 	
 	! [[ -e /usr/share/eclipse/dropins/cdt ]] && echo 'warn: missing: /usr/share/eclipse/dropins/cdt'
 }
@@ -12196,7 +12200,7 @@ _scope_dolphin() {
 }
 
 _testGit() {
-	_getDep git
+	_wantGetDep git
 }
 
 #Ignores file modes, suitable for use with possibly broken filesystems like NTFS.
@@ -12500,6 +12504,15 @@ CZXWXcRMTo8EmM8i4d
 
 }
 
+
+_test_mkboot() {
+	! _wantSudo && echo 'warn: no sudo'
+	
+	_wantGetDep grub-install
+	_wantGetDep MAKEDEV
+}
+
+
 #http://nairobi-embedded.org/making_a_qemu_disk_image_bootable_with_grub.html
 _mkboot_sequence() {
 	_start
@@ -12635,17 +12648,10 @@ _mkboot() {
 }
 
 
-_test_mkboot() {
-	_mustGetSudo
-	
-	_getDep grub-install
-	_getDep MAKEDEV
-}
-
 _testDistro() {
-	_getDep sha256sum
-	_getDep sha512sum
-	_getDep axel
+	_wantGetDep sha256sum
+	_wantGetDep sha512sum
+	_wantGetDep axel
 }
 
 #"$1" == storageLocation (optional)
@@ -12654,7 +12660,7 @@ _test_fetchDebian() {
 	then
 		echo 'warn: Debian Keyring missing.'
 		echo 'request: apt-get install debian-keyring'
-		_mustGetSudo
+		! _wantSudo && echo 'warn: no sudo'
 		sudo -n apt-get install -y debian-keyring
 		! ls /usr/share/keyrings/debian-role-keys.gpg && return 1
 	fi
@@ -12891,9 +12897,9 @@ _create_msw() {
 }
 
 _testX11() {
-	_getDep xclip
+	_wantGetDep xclip
 	
-	_getDep xinput
+	_wantGetDep xinput
 }
 
 _report_xi() {
@@ -12938,7 +12944,7 @@ _reset_KDE() {
 
 # Also depends on '_labVBoxManage' and '_userVBoxManage' .
 _test_vboxconvert() {
-	_getDep VBoxManage
+	_wantGetDep VBoxManage
 }
 
 #No production use.
@@ -13220,7 +13226,7 @@ _docker_deleteLocalAll() {
 
 
 _test_docker_mkimage() {
-	_getDep "debootstrap"
+	_wantGetDep "debootstrap"
 }
 
 _create_docker_mkimage_sequence() {
@@ -14061,7 +14067,7 @@ _dockerRun() {
 }
 
 _test_gparted() {
-	_getDep gparted
+	_wantGetDep gparted
 }
 
 _gparted_sequence() {
@@ -14637,8 +14643,8 @@ _kernelConfig_require-latency() {
 	# CRITICAL!
 	# Default cannot be set currently.
 	_messagePlain_request 'request: Set '\''bfq'\'' as default IO scheduler (strongly recommended).'
-	#_kernelConfig_bad-y__ DEFAULT_IOSCHED
-	#_kernelConfig_bad-y__ DEFAULT_BFQ
+	#_kernelConfig__bad-y__ DEFAULT_IOSCHED
+	#_kernelConfig__bad-y__ DEFAULT_BFQ
 	
 	# CRITICAL!
 	# Expected to protect interactive applications from background IO.
@@ -14718,6 +14724,18 @@ _kernelConfig_require-integration() {
 	_kernelConfig_warn-y__ CONFIG_GENTOO_LINUX_INIT_SYSTEMD
 }
 
+# Recommended by docker ebuild during installation under Gentoo.
+_kernelConfig_require-investigation_docker() {
+	_messagePlain_nominal 'kernelConfig: investigation: docker'
+	export kernelConfig_file="$1"
+	
+	_kernelConfig_warn-y__ CONFIG_MEMCG_SWAP_ENABLED
+	_kernelConfig_warn-y__ CONFIG_CGROUP_HUGETLB
+	_kernelConfig_warn-y__ CONFIG_RT_GROUP_SCHED
+	
+	true
+}
+
 
 # ATTENTION: Insufficiently investigated stuff to think about. Unknown consequences.
 _kernelConfig_require-investigation() {
@@ -14733,6 +14751,8 @@ _kernelConfig_require-investigation() {
 	
 	_kernelConfig_warn-any LOCK_EVENT_COUNTS
 	
+	
+	_kernelConfig_require-investigation_docker "$@"
 	_kernelConfig_require-investigation_prog "$@"
 	true
 }
@@ -15345,8 +15365,11 @@ _test_ethereum() {
 	_getDep GL/glx.h
 	_getDep GL/glxext.h
 	_getDep GL/internal/dri_interface.h
-	_getDep x86_64-linux-gnu/pkgconfig/dri.pc
 	
+	if ! _wantGetDep x86_64-linux-gnu/pkgconfig/dri.pc && ! _wantGetDep pkgconfig/dri.pc
+	then
+		_stop 1
+	fi
 }
 
 _test_ethereum_built() {
