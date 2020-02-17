@@ -3179,7 +3179,23 @@ _generate_compile_bash() {
 
 _generate_compile_bash_prog() {
 	"$scriptAbsoluteLocation" _true
-} 
+	
+	#return
+	
+	rm "$scriptAbsoluteFolder"/ubiquitous_bash.sh
+	
+	"$scriptAbsoluteLocation" _compile_bash fakehome ubiquitous_bash.sh
+	
+	#"$scriptAbsoluteLocation" _compile_bash cautossh cautossh
+	#"$scriptAbsoluteLocation" _compile_bash lean lean.sh
+	
+	#"$scriptAbsoluteLocation" _compile_bash core ubiquitous_bash.sh
+	
+	#"$scriptAbsoluteLocation" _compile_bash "" ""
+	#"$scriptAbsoluteLocation" _compile_bash ubiquitous_bash ubiquitous_bash.sh
+	
+	#"$scriptAbsoluteLocation" _package
+}
 
 #Default is to include all, or run a specified configuration. For this reason, it will be more typical to override this entire function, rather than append any additional code.
 _compile_bash_deps() {
