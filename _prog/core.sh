@@ -231,8 +231,27 @@ _chromium() {
 	_v_chromium "$@"
 }
 
+
+_dolphin_userHome() {
+	_messageNormal 'Launch: dolphin'
+	_userFakeHome dolphin "$@"
+}
+
+_dolphin_editHome() {
+	_messageNormal 'Launch: dolphin'
+	_editFakeHome dolphin "$@"
+}
+
+_dolphin() {
+	_dolphin_userHome "$@"
+}
+
 _webClient() {
 	_launch "$@"
+}
+
+_fsClient() {
+	_dolphin_userHome "$@"
 }
 
 _refresh_anchors() {
@@ -245,4 +264,11 @@ _refresh_anchors() {
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_firefox_esr_editHome
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_v_firefox
 	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_chromium
+	
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_fsClient
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_dolphin
+	cp -a "$scriptAbsoluteFolder"/_anchor "$scriptAbsoluteFolder"/_dolphin_editHome
 }
+
+
+
