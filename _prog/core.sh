@@ -234,12 +234,12 @@ _chromium() {
 
 _dolphin_userHome() {
 	_messageNormal 'Launch: dolphin'
-	_userFakeHome dolphin "$@"
+	_userFakeHome dolphin --new-window "$@"
 }
 
 _dolphin_editHome() {
 	_messageNormal 'Launch: dolphin'
-	_editFakeHome dolphin "$@"
+	_editFakeHome dolphin --new-window "$@"
 }
 
 _dolphin() {
