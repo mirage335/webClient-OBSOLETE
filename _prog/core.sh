@@ -177,12 +177,18 @@ _firefox_esr_editHome() {
 	_fakeHome "$scriptAbsoluteLocation" "_firefox_esr_command" -no-remote "$@"
 }
 
-_firefox_esr_userHome() {
+
+_firefox_esr_userHome_procedure() {
 	export globalFakeHome="$scriptLocal"/h_esr
 	export actualFakeHome="$instancedFakeHome"
 	export fakeHomeEditLib="false"
-	#export keepFakeHome="false"
+	export keepFakeHome="false"
 	_fakeHome "$scriptAbsoluteLocation" "_firefox_esr_command" -no-remote "$@"
+}
+
+_firefox_esr_userHome() {
+	export keepFakeHome="false"
+	"$scriptAbsoluteLocation" _firefox_esr_userHome_procedure "$@"
 }
 
 _v_firefox_esr() {
